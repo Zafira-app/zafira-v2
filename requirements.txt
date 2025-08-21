@@ -1,0 +1,15 @@
+# Zafira V2.0 - Dependências
+# Assistente inteligente de compras para WhatsApp
+
+# Framework web
+Flask==2.3.3
+gunicorn==21.2.0
+
+# Requisições HTTP
+requests==2.31.0
+
+# Utilitários
+python-dotenv==1.0.0
+
+# Logging e monitoramento
+Werkzeug==2.3.7
