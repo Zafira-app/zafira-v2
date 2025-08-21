@@ -1,11 +1,10 @@
 """
-Zafira V2.0 - Cliente AliExpress
+Zafira V2.0 - Cliente AliExpress CORRIGIDO
 Integração robusta com a API oficial do AliExpress
 """
 
 import requests
 import hashlib
-import hmac
 import time
 import os
 import logging
@@ -19,7 +18,7 @@ class AliExpressClient:
     
     def __init__(self):
         self.base_url = "https://api-sg.aliexpress.com/sync"
-        self.app_key = os.getenv("ALIEXPRESS_APP_KEY" )
+        self.app_key = os.getenv("ALIEXPRESS_APP_KEY")
         self.app_secret = os.getenv("ALIEXPRESS_APP_SECRET")
         self.tracking_id = os.getenv("ALIEXPRESS_TRACKING_ID")
         
@@ -65,36 +64,38 @@ class AliExpressClient:
     def _search_api(self, query: str, max_results: int) -> List[Dict]:
         """Executa busca na API do AliExpress"""
         try:
-            # Parâmetros da requisição
+            # Parâmetros da requisição - FORMATO CORRETO
             timestamp = str(int(time.time() * 1000))
             
             params = {
                 "app_key": self.app_key,
-                "sign_method": "sha256",
-                "timestamp": timestamp,
-                "method": "aliexpress.affiliate.product.query",
                 "format": "json",
+                "method": "aliexpress.affiliate.product.query",
+                "partner_id": self.tracking_id,
+                "sign_method": "md5",
+                "timestamp": timestamp,
                 "v": "2.0",
                 "keywords": query,
-                "category_ids": "",
-                "delivery_days": "",
-                "fields": "commission_rate,sale_price,discount,product_main_image_url,product_small_image_urls,product_title,product_url,shop_url,shop_id,evaluate_rate,original_price,lastest_volume,product_id,seller_id,first_level_category_id,first_level_category_name,second_level_category_id,second_level_category_name,current_record_count,target_sale_price,target_sale_price_currency,target_original_price,target_original_price_currency,original_price_currency,sale_price_currency,promotion_link",
-                "page_no": "1",
-                "page_size": str(max_results * 2),  # Busca mais para filtrar depois
-                "platform_product_type": "ALL",
+                "page_size": str(max_results * 2),
                 "ship_to_country": "BR",
                 "sort": "SALE_PRICE_ASC",
                 "target_currency": "BRL",
                 "target_language": "PT",
-                "tracking_id": self.tracking_id
+                "tracking_id": self.tracking_id,
+                "fields": "commission_rate,sale_price,discount,product_main_image_url,product_title,product_url,evaluate_rate,original_price,lastest_volume,product_id,target_sale_price,target_sale_price_currency,promotion_link"
             }
             
-            # Gera assinatura
+            # Gera assinatura CORRETA
             signature = self._generate_signature(params)
             params["sign"] = signature
             
+            logger.info(f"Parâmetros da API: {params}")
+            
             # Faz a requisição
             response = requests.get(self.base_url, params=params, timeout=30)
+            
+            logger.info(f"Status da resposta: {response.status_code}")
+            logger.info(f"Resposta da API: {response.text[:500]}...")
             
             if response.status_code == 200:
                 data = response.json()
@@ -129,7 +130,7 @@ class AliExpressClient:
             return []
     
     def _generate_signature(self, params: Dict) -> str:
-        """Gera assinatura para autenticação na API"""
+        """Gera assinatura MD5 CORRETA para autenticação na API"""
         try:
             # Remove o parâmetro sign se existir
             clean_params = {k: v for k, v in params.items() if k != "sign"}
@@ -137,14 +138,18 @@ class AliExpressClient:
             # Ordena parâmetros alfabeticamente
             sorted_params = sorted(clean_params.items())
             
-            # Concatena parâmetros
+            # Concatena parâmetros no formato correto: key1value1key2value2...
             param_string = "".join([f"{k}{v}" for k, v in sorted_params])
             
-            # Adiciona app_secret no início e fim
+            # Adiciona app_secret no início e fim - FORMATO CORRETO
             sign_string = f"{self.app_secret}{param_string}{self.app_secret}"
             
-            # Gera hash SHA256
-            signature = hashlib.sha256(sign_string.encode('utf-8')).hexdigest().upper()
+            logger.info(f"String para assinatura: {sign_string[:100]}...")
+            
+            # Gera hash MD5 e converte para MAIÚSCULAS
+            signature = hashlib.md5(sign_string.encode('utf-8')).hexdigest().upper()
+            
+            logger.info(f"Assinatura gerada: {signature}")
             
             return signature
             
@@ -222,3 +227,4 @@ class AliExpressClient:
         except Exception as e:
             logger.error(f"Erro no teste de conexão: {e}")
             return False
+
