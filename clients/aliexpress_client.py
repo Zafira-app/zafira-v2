@@ -8,7 +8,7 @@ from typing import Optional, List, Dict, Any
 logger = logging.getLogger(__name__)
 
 class AliExpressClient:
-    """Cliente para interagir com a API do AliExpress Affiliate - TESTE OFICIAL."""
+    """Cliente para interagir com a API do AliExpress Affiliate - VERSÃO SHA256 CORRETA."""
     
     def __init__(self):
         self.app_key = os.getenv("ALIEXPRESS_APP_KEY")
@@ -19,7 +19,7 @@ class AliExpressClient:
         if not all([self.app_key, self.app_secret, self.tracking_id]):
             logger.error("Credenciais do AliExpress não configuradas!")
         else:
-            logger.info("Cliente AliExpress TESTE OFICIAL inicializado com sucesso")
+            logger.info("Cliente AliExpress SHA256 CORRETO inicializado com sucesso")
 
     def search_products(self, keywords: str, max_retries: int = 1) -> List[Dict[str, Any]]:
         """Busca produtos no AliExpress usando palavras-chave."""
@@ -28,51 +28,55 @@ class AliExpressClient:
             return []
 
         try:
-            logger.info(f"[TESTE] Buscando produtos para: {keywords}")
+            logger.info(f"[SHA256] Buscando produtos para: {keywords}")
             
             # Timestamp atual em milissegundos
             timestamp = str(int(time.time() * 1000))
             
-            # Parâmetros EXATOS da documentação oficial
+            # Parâmetros EXATOS baseados na URL oficial do painel
             params = {
-                'app_key': self.app_key,
-                'format': 'json',
                 'method': 'aliexpress.affiliate.product.query',
-                'sign_method': 'md5',
+                'app_key': self.app_key,
+                'sign_method': 'sha256',  # SHA256, não MD5!
                 'timestamp': timestamp,
-                'v': '2.0',
                 'keywords': keywords,
-                'page_size': '6',
-                'ship_to_country': 'BR',
-                'sort': 'SALE_PRICE_ASC',
                 'target_currency': 'BRL',
                 'target_language': 'PT',
+                'ship_to_country': 'BR',
                 'tracking_id': self.tracking_id,
-                'fields': 'commission_rate,sale_price,discount,product_main_image_url,product_title,product_url,evaluate_rate,original_price,lastest_volume,product_id,target_sale_price,target_sale_price_currency,promotion_link'
+                'page_size': '6',
+                'page_no': '1',
+                'sort': 'SALE_PRICE_ASC',
+                'platform_product_type': 'ALL',
+                'fields': 'commission_rate,sale_price,discount,product_main_image_url,product_title,product_url,evaluate_rate,original_price,lastest_volume,product_id,target_sale_price,target_sale_price_currency,promotion_link',
+                'min_sale_price': '1',
+                'max_sale_price': '1000',
+                'delivery_days': '15',
+                'app_signature': 'zafira_signature'  # Parâmetro adicional necessário
             }
             
-            # Gerar assinatura seguindo EXATAMENTE a documentação
-            signature = self._generate_signature_exact(params)
+            # Gerar assinatura SHA256
+            signature = self._generate_signature_sha256(params)
             params['sign'] = signature
             
-            logger.info(f"[TESTE] Fazendo requisição para API")
-            logger.info(f"[TESTE] Timestamp: {timestamp}")
-            logger.info(f"[TESTE] Assinatura: {signature}")
+            logger.info(f"[SHA256] Fazendo requisição para API")
+            logger.info(f"[SHA256] Timestamp: {timestamp}")
+            logger.info(f"[SHA256] Assinatura SHA256: {signature}")
             
             # Fazer requisição
             response = requests.get(self.api_url, params=params, timeout=30)
             
-            logger.info(f"[TESTE] Status da resposta: {response.status_code}")
-            logger.info(f"[TESTE] URL completa: {response.url}")
+            logger.info(f"[SHA256] Status da resposta: {response.status_code}")
+            logger.info(f"[SHA256] URL completa: {response.url}")
             
             if response.status_code == 200:
                 data = response.json()
-                logger.info(f"[TESTE] Resposta completa: {data}")
+                logger.info(f"[SHA256] Resposta: {str(data)[:300]}...")
                 
                 # Verificar se há erro na resposta
                 if 'error_response' in data:
                     error_info = data['error_response']
-                    logger.error(f"[TESTE] Erro da API AliExpress: {error_info}")
+                    logger.error(f"[SHA256] Erro da API AliExpress: {error_info}")
                     return []
                 
                 # Processar resposta de sucesso
@@ -84,34 +88,31 @@ class AliExpressClient:
                         
                         if 'result' in resp_result and 'products' in resp_result['result']:
                             products = resp_result['result']['products']
-                            logger.info(f"[TESTE] SUCESSO! Encontrados {len(products)} produtos")
+                            logger.info(f"[SHA256] SUCESSO! Encontrados {len(products)} produtos")
                             return products
                         else:
-                            logger.warning("[TESTE] Nenhum produto encontrado na resposta")
+                            logger.warning("[SHA256] Nenhum produto encontrado na resposta")
                             return []
                     else:
-                        logger.warning("[TESTE] Estrutura de resposta inesperada")
+                        logger.warning("[SHA256] Estrutura de resposta inesperada")
                         return []
                 else:
-                    logger.warning("[TESTE] Resposta não contém dados de produtos")
+                    logger.warning("[SHA256] Resposta não contém dados de produtos")
                     return []
             else:
-                logger.error(f"[TESTE] Erro HTTP: {response.status_code}")
-                logger.error(f"[TESTE] Resposta: {response.text}")
+                logger.error(f"[SHA256] Erro HTTP: {response.status_code}")
+                logger.error(f"[SHA256] Resposta: {response.text}")
                 return []
                 
         except Exception as e:
-            logger.error(f"[TESTE] Exceção: {e}")
+            logger.error(f"[SHA256] Exceção: {e}")
             return []
         
         return []
 
-    def _generate_signature_exact(self, params: Dict[str, str]) -> str:
+    def _generate_signature_sha256(self, params: Dict[str, str]) -> str:
         """
-        Gera a assinatura MD5 seguindo EXATAMENTE o exemplo da documentação oficial.
-        
-        Exemplo da documentação:
-        app_secret + sorted_params_string + app_secret
+        Gera a assinatura SHA256 baseada na implementação oficial do painel AliExpress.
         """
         
         # 1. Remover 'sign' se existir
@@ -120,22 +121,22 @@ class AliExpressClient:
         # 2. Ordenar alfabeticamente
         sorted_items = sorted(filtered_params.items())
         
-        logger.info(f"[TESTE] Parâmetros ordenados: {sorted_items}")
+        logger.info(f"[SHA256] Parâmetros ordenados: {sorted_items}")
         
         # 3. Concatenar como: key1value1key2value2...
         param_string = ''.join([f'{k}{v}' for k, v in sorted_items])
         
-        logger.info(f"[TESTE] String de parâmetros: {param_string}")
+        logger.info(f"[SHA256] String de parâmetros: {param_string}")
         
         # 4. Adicionar app_secret no início e fim
         sign_string = f'{self.app_secret}{param_string}{self.app_secret}'
         
-        logger.info(f"[TESTE] String completa para assinatura: {sign_string}")
+        logger.info(f"[SHA256] String completa para assinatura: {sign_string}")
         
-        # 5. Calcular MD5 e converter para maiúsculo
-        signature = hashlib.md5(sign_string.encode('utf-8')).hexdigest().upper()
+        # 5. Calcular SHA256 e converter para maiúsculo
+        signature = hashlib.sha256(sign_string.encode('utf-8')).hexdigest().upper()
         
-        logger.info(f"[TESTE] Assinatura MD5 final: {signature}")
+        logger.info(f"[SHA256] Assinatura SHA256 final: {signature}")
         
         return signature
 
