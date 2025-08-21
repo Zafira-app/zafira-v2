@@ -1,256 +1,141 @@
-"""
-Zafira V2.0 - Cérebro Inteligente
-Processamento principal de mensagens e inteligência artificial
-"""
+# zafira_core_fixed.py
 
-import re
 import logging
-from typing import Optional, Dict, List
-from aliexpress_client import AliExpressClient
-from whatsapp_client import WhatsAppClient
-import requests
-import json
-import os
+from typing import Dict, Optional
+from clients.whatsapp_client import WhatsAppClient
+from clients.aliexpress_client import AliExpressClient
+import re
 
 logger = logging.getLogger(__name__)
 
 class ZafiraCore:
-    """Cérebro principal da Zafira - Inteligente e conversacional"""
-    
+    """
+    Núcleo de inteligência da Zafira.
+    Processa mensagens, detecta intenções e coordena as ações.
+    VERSÃO COM CORREÇÃO DE BUG ('bool' object is not subscriptable)
+    """
     def __init__(self):
-        self.aliexpress = AliExpressClient()
-        self.whatsapp = WhatsAppClient()
-        self.groq_api_key = os.getenv("GROQ_API_KEY")
-        self.groq_url = "https://api.groq.com/openai/v1/chat/completions"
-        
-        # Contexto da conversa (memória simples )
-        self.conversation_context = {}
-        
+        self.whatsapp_client = WhatsAppClient()
+        self.aliexpress_client = AliExpressClient()
         logger.info("Zafira Core inicializada com sucesso")
-    
-    def process_message(self, user_id: str, message: str) -> bool:
-        """Processa uma mensagem e gera resposta inteligente"""
+
+    def process_message(self, sender_id: str, message: str) -> bool:
+        """Processa uma mensagem recebida."""
+        logger.info(f"Processando mensagem de {sender_id}: {message}")
         try:
-            logger.info(f"Processando mensagem de {user_id}: {message}")
-            
-            # Analisa a intenção da mensagem
-            intent = self.analyze_intent(message)
+            intent = self._detect_intent(message)
             logger.info(f"Intenção detectada: {intent}")
-            
-            # Gera resposta baseada na intenção
+
             if intent == "saudacao":
-                response = self.handle_greeting(user_id, message)
+                return self._handle_greeting(sender_id)
             elif intent == "produto":
-                response = self.handle_product_request(user_id, message)
-            elif intent == "agradecimento":
-                response = self.handle_thanks(user_id, message)
+                return self._handle_product_intent(sender_id, message)
             else:
-                response = self.handle_conversation(user_id, message)
-            
-            # Envia a resposta
-            if response:
-                success = self.whatsapp.send_message(user_id, response)
-                if success:
-                    logger.info(f"Resposta enviada com sucesso para {user_id}")
-                    return True
-                else:
-                    logger.error(f"Falha ao enviar resposta para {user_id}")
-                    return False
-            else:
-                logger.warning("Nenhuma resposta gerada")
-                return False
-                
+                return self._handle_fallback(sender_id)
         except Exception as e:
             logger.error(f"Erro ao processar mensagem: {e}")
-            self.send_error_message(user_id)
+            self.whatsapp_client.send_error_message(sender_id)
             return False
-    
-    def analyze_intent(self, message: str) -> str:
-        """Analisa a intenção da mensagem de forma inteligente"""
-        message_lower = message.lower().strip()
+
+    def _detect_intent(self, message: str) -> str:
+        """Detecta a intenção do usuário com base na mensagem."""
+        message_lower = message.lower()
         
-        # Palavras-chave para saudações
-        greeting_patterns = [
-            r'\b(oi|olá|ola|hey|e aí|eai|bom dia|boa tarde|boa noite)\b',
-            r'\b(como vai|tudo bem|como está|como esta)\b',
-            r'^(oi|olá|ola|hey)$'
-        ]
-        
-        # Palavras-chave para produtos
-        product_patterns = [
-            r'\b(quero|preciso|busco|procuro|me mostra|mostra|encontra)\b',
-            r'\b(fone|headphone|celular|smartphone|tênis|tenis|notebook|laptop)\b',
-            r'\b(produto|comprar|compra|preço|preco|oferta|desconto)\b',
-            r'\b(até|ate|por|menos de|máximo|maximo)\s*\d+\s*(reais|real|r\$)\b'
-        ]
-        
-        # Palavras-chave para agradecimento
-        thanks_patterns = [
-            r'\b(obrigad[oa]|valeu|vlw|thanks|brigad[oa])\b',
-            r'\b(muito bom|perfeito|excelente|ótimo|otimo)\b'
-        ]
-        
-        # Verifica padrões
-        for pattern in greeting_patterns:
-            if re.search(pattern, message_lower):
+        # Palavras-chave para saudação
+        greeting_keywords = ["oi", "ola", "olá", "bom dia", "boa tarde", "boa noite", "e aí", "eae", "tudo bem", "zafira"]
+        # Palavras-chave para intenção de produto
+        product_keywords = ["quero", "gostaria", "procuro", "encontrar", "achar", "tem", "vende", "preço", "valor", "quanto custa", "comprar"]
+
+        if any(keyword in message_lower for keyword in greeting_keywords):
+            # Se for apenas "zafira", também é uma saudação
+            if message_lower.strip() == "zafira":
                 return "saudacao"
-        
-        for pattern in product_patterns:
-            if re.search(pattern, message_lower):
+            # Se tiver palavras de produto, prioriza a busca
+            if any(prod_keyword in message_lower for prod_keyword in product_keywords):
                 return "produto"
-        
-        for pattern in thanks_patterns:
-            if re.search(pattern, message_lower):
-                return "agradecimento"
-        
-        return "conversa"
-    
-    def handle_greeting(self, user_id: str, message: str) -> str:
-        """Lida com saudações de forma calorosa"""
-        greetings = [
-            "Oi! 😊 Sou a Zafira, sua assistente de compras! Como posso te ajudar a encontrar produtos incríveis hoje?",
-            "Olá! 👋 Pronta para te ajudar a encontrar os melhores produtos! O que você está procurando?",
-            "Oi! 🛍️ Sou especialista em encontrar produtos com ótimos preços! Me conta o que você precisa!",
-            "Olá! ✨ Vamos encontrar produtos perfeitos para você! O que tem em mente?"
-        ]
-        
-        import random
-        return random.choice(greetings)
-    
-    def handle_product_request(self, user_id: str, message: str) -> str:
-        """Lida com pedidos de produtos"""
-        try:
-            # Extrai termos de busca da mensagem
-            search_terms = self.extract_product_terms(message)
-            logger.info(f"Termos de busca extraídos: {search_terms}")
+            return "saudacao"
+
+        if any(keyword in message_lower for keyword in product_keywords):
+            return "produto"
             
-            if not search_terms:
-                return "Hmm, não consegui entender exatamente o que você está procurando. Pode me dar mais detalhes? Por exemplo: 'quero um fone bluetooth' ou 'celular até 1000 reais' 😊"
-            
-            # Busca produtos no AliExpress
-            products = self.aliexpress.search_products(search_terms)
-            
-            if not products:
-                return f"Não encontrei produtos para '{search_terms}' no momento 😔\n\nTente ser mais específico ou me pergunte sobre outros produtos! Estou aqui para ajudar! 🛍️"
-            
-            # Formata resposta com produtos
-            response = self.format_product_response(search_terms, products)
-            return response
-            
-        except Exception as e:
-            logger.error(f"Erro ao processar pedido de produto: {e}")
-            return "Ops! Tive um probleminha ao buscar produtos. Tenta novamente em alguns segundos? 😅"
-    
-    def handle_thanks(self, user_id: str, message: str) -> str:
-        """Lida com agradecimentos"""
-        thanks_responses = [
-            "De nada! 😊 Fico feliz em ajudar! Se precisar de mais alguma coisa, é só falar!",
-            "Por nada! 🛍️ Sempre que quiser encontrar produtos incríveis, estarei aqui!",
-            "Que bom que ajudei! ✨ Volte sempre que precisar de dicas de produtos!",
-            "Disponha! 😄 Adoro ajudar a encontrar produtos perfeitos!"
-        ]
+        return "desconhecido"
+
+    def _handle_greeting(self, sender_id: str) -> bool:
+        """Lida com a intenção de saudação."""
+        response_text = "Oi! 😊 Sou a Zafira, sua assistente de compras! \n\nPosso te ajudar a encontrar as melhores ofertas no AliExpress. O que você está procurando hoje?"
+        success = self.whatsapp_client.send_text_message(sender_id, response_text)
+        if success:
+            logger.info(f"Resposta de saudação enviada com sucesso para {sender_id}")
+        return success
+
+    def _handle_product_intent(self, sender_id: str, message: str) -> bool:
+        """Lida com a intenção de buscar um produto."""
+        search_terms = self._extract_search_terms(message)
+        logger.info(f"Termos de busca extraídos: {search_terms}")
+
+        if not search_terms:
+            return self._handle_fallback(sender_id)
+
+        products = self.aliexpress_client.search_products(search_terms)
+
+        # FIX: Adicionada verificação para garantir que 'products' é uma lista antes de prosseguir
+        if products and isinstance(products, list):
+            logger.info(f"Encontrados {len(products)} produtos para '{search_terms}'")
+            response_text = self._format_product_response(products, search_terms)
+            success = self.whatsapp_client.send_text_message(sender_id, response_text)
+        else:
+            logger.warning(f"Nenhum produto encontrado para '{search_terms}'")
+            response_text = f"Não encontrei produtos para '{search_terms}' no momento 😔. Tente descrever o produto de outra forma!"
+            success = self.whatsapp_client.send_text_message(sender_id, response_text)
         
-        import random
-        return random.choice(thanks_responses)
-    
-    def handle_conversation(self, user_id: str, message: str) -> str:
-        """Lida com conversas gerais usando IA"""
-        try:
-            if not self.groq_api_key:
-                return "Oi! 😊 Sou especialista em encontrar produtos! Me conta o que você está procurando e vou te ajudar!"
-            
-            # Usa IA para resposta conversacional
-            ai_response = self.get_ai_response(message)
-            
-            if ai_response:
-                return ai_response
-            else:
-                return "Interessante! 🤔 Mas sou especialista em encontrar produtos! Me conta o que você quer comprar que te ajudo a achar as melhores ofertas! 🛍️"
-                
-        except Exception as e:
-            logger.error(f"Erro na conversa com IA: {e}")
-            return "Oi! 😊 Sou a Zafira, especialista em produtos! O que você está procurando hoje?"
-    
-    def extract_product_terms(self, message: str) -> str:
-        """Extrai termos de busca de produtos da mensagem"""
-        # Remove palavras irrelevantes
-        stop_words = ['quero', 'preciso', 'busco', 'procuro', 'me', 'mostra', 'um', 'uma', 'o', 'a', 'de', 'para', 'com', 'até', 'por']
+        if success:
+            logger.info(f"Resposta de produto enviada com sucesso para {sender_id}")
+        return success
+
+    def _handle_fallback(self, sender_id: str) -> bool:
+        """Lida com mensagens não compreendidas."""
+        response_text = "Desculpe, não entendi o que você quis dizer. 🤔\n\nTente me dizer o que você quer comprar, por exemplo: 'Quero um fone bluetooth' ou 'Procuro um vestido de festa'."
+        success = self.whatsapp_client.send_text_message(sender_id, response_text)
+        if success:
+            logger.info(f"Resposta de fallback enviada com sucesso para {sender_id}")
+        return success
+
+    def _extract_search_terms(self, message: str) -> str:
+        """Extrai os termos de busca da mensagem do usuário."""
+        # Remove palavras-chave comuns e artigos para limpar a busca
+        stopwords = ["quero", "gostaria", "procuro", "encontrar", "achar", "tem", "vende", "preço", "valor", "quanto custa", "comprar", "um", "uma", "o", "a", "de", "do", "da", "para", "com"]
         
-        # Limpa a mensagem
-        clean_message = re.sub(r'[^\w\s]', ' ', message.lower())
-        words = clean_message.split()
+        # Remove pontuação
+        message_clean = re.sub(r'[^\w\s]', '', message)
         
-        # Remove stop words
-        filtered_words = [word for word in words if word not in stop_words and len(word) > 2]
+        words = message_clean.lower().split()
+        search_terms = [word for word in words if word not in stopwords]
         
-        # Junta as palavras relevantes
-        search_terms = ' '.join(filtered_words)
+        return " ".join(search_terms)
+
+    def _format_product_response(self, products: list, query: str) -> str:
+        """Formata a lista de produtos em uma única mensagem de texto."""
+        if not products:
+            return f"Não encontrei produtos para '{query}' no momento 😔. Tente descrever o produto de outra forma!"
+
+        header = f"Aqui estão os 3 melhores resultados para '{query}' que encontrei no AliExpress! 🚀\n\n"
         
-        return search_terms.strip()
-    
-    def format_product_response(self, search_terms: str, products: List[Dict]) -> str:
-        """Formata resposta com produtos encontrados"""
-        response = f"🛍️ Encontrei ótimas opções de {search_terms} para você!\n\n"
+        product_lines = []
+        for i, product in enumerate(products[:3]):
+            title = product.get('product_title', 'Produto sem título')
+            price = product.get('target_sale_price', 'Preço indisponível')
+            rating = product.get('evaluate_rate', 'Sem avaliação')
+            link = product.get('promotion_link', '')
+
+            # Limita o título para não ficar muito longo
+            if len(title) > 60:
+                title = title[:57] + "..."
+
+            line = f"*{i+1}. {title}*\n" \
+                   f"💰 *Preço:* {price}\n" \
+                   f"⭐ *Avaliação:* {rating}\n" \
+                   f"🔗 *Link:* {link}\n"
+            product_lines.append(line)
         
-        for i, product in enumerate(products[:3], 1):
-            name = product.get('product_title', 'Produto')[:60]
-            price = product.get('target_sale_price', 'Preço não disponível')
-            rating = product.get('evaluate_rate', 'N/A')
-            link = product.get('promotion_link', '#')
-            
-            response += f"🏆 **Opção {i}:**\n"
-            response += f"📱 {name}\n"
-            response += f"💰 {price}\n"
-            response += f"⭐ Avaliação: {rating}\n"
-            response += f"🔗 {link}\n\n"
-        
-        response += "✨ Todos os links já incluem desconto especial!\n"
-        response += "💬 Quer ver mais opções? É só me falar!"
-        
-        return response
-    
-    def get_ai_response(self, message: str) -> Optional[str]:
-        """Gera resposta usando IA Groq"""
-        try:
-            headers = {
-                "Authorization": f"Bearer {self.groq_api_key}",
-                "Content-Type": "application/json"
-            }
-            
-            payload = {
-                "model": "llama-3.1-70b-versatile",
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": "Você é a Zafira, uma assistente brasileira especialista em encontrar produtos. Seja simpática, use emojis, e sempre direcione a conversa para ajudar com compras. Respostas curtas e objetivas."
-                    },
-                    {
-                        "role": "user",
-                        "content": message
-                    }
-                ],
-                "max_tokens": 100,
-                "temperature": 0.7
-            }
-            
-            response = requests.post(self.groq_url, headers=headers, json=payload, timeout=10)
-            
-            if response.status_code == 200:
-                data = response.json()
-                ai_response = data['choices'][0]['message']['content'].strip()
-                return ai_response
-            else:
-                logger.error(f"Erro na API Groq: {response.status_code}")
-                return None
-                
-        except Exception as e:
-            logger.error(f"Erro ao chamar IA: {e}")
-            return None
-    
-    def send_error_message(self, user_id: str):
-        """Envia mensagem de erro amigável"""
-        try:
-            error_message = "Ops! Tive um probleminha técnico 😅\n\nMas já estou funcionando novamente! Me manda sua pergunta que te ajudo! 🛍️"
-            self.whatsapp.send_message(user_id, error_message)
-        except Exception as e:
-            logger.error(f"Erro ao enviar mensagem de erro: {e}")
+        return header + "\n".join(product_lines)
+
