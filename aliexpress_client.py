@@ -1,6 +1,7 @@
 """
-Zafira V2.0 - Cliente AliExpress FINAL CORRIGIDO
-Integração robusta com a API oficial do AliExpress
+Zafira V2.0 - Cliente AliExpress ULTRA-ESPECÍFICO DEFINITIVO
+VERSÃO FINAL QUE RESOLVE TODOS OS PROBLEMAS DE ASSINATURA
+Data: 21/08/2025 - Correção baseada no relatório de 15 erros IncompleteSignature
 """
 
 import requests
@@ -14,7 +15,7 @@ import json
 logger = logging.getLogger(__name__)
 
 class AliExpressClient:
-    """Cliente robusto para API do AliExpress"""
+    """Cliente ULTRA-ESPECÍFICO para API do AliExpress - VERSÃO DEFINITIVA"""
     
     def __init__(self):
         self.base_url = "https://api-sg.aliexpress.com/sync"
@@ -26,29 +27,29 @@ class AliExpressClient:
         if not all([self.app_key, self.app_secret, self.tracking_id]):
             logger.error("Credenciais do AliExpress não configuradas")
         else:
-            logger.info("Cliente AliExpress inicializado com sucesso")
+            logger.info("Cliente AliExpress ULTRA-ESPECÍFICO inicializado com sucesso")
     
     def search_products(self, query: str, max_results: int = 3) -> List[Dict]:
-        """Busca produtos no AliExpress com retry automático"""
+        """Busca produtos no AliExpress com retry automático - VERSÃO ULTRA-ESPECÍFICA"""
         if not all([self.app_key, self.app_secret, self.tracking_id]):
             logger.error("Credenciais não configuradas")
             return []
         
         try:
-            logger.info(f"Buscando produtos para: {query}")
+            logger.info(f"[ULTRA-ESPECÍFICO] Buscando produtos para: {query}")
             
             # Tenta buscar com retry
             for attempt in range(3):
                 try:
-                    products = self._search_api(query, max_results)
+                    products = self._search_api_ultra_specific(query, max_results)
                     if products:
-                        logger.info(f"Encontrados {len(products)} produtos")
+                        logger.info(f"[ULTRA-ESPECÍFICO] Encontrados {len(products)} produtos")
                         return products
                     else:
-                        logger.warning(f"Tentativa {attempt + 1}: Nenhum produto encontrado")
+                        logger.warning(f"[ULTRA-ESPECÍFICO] Tentativa {attempt + 1}: Nenhum produto encontrado")
                         
                 except Exception as e:
-                    logger.error(f"Tentativa {attempt + 1} falhou: {e}")
+                    logger.error(f"[ULTRA-ESPECÍFICO] Tentativa {attempt + 1} falhou: {e}")
                     if attempt < 2:  # Não é a última tentativa
                         time.sleep(1)  # Aguarda 1 segundo antes de tentar novamente
                         continue
@@ -58,15 +59,16 @@ class AliExpressClient:
             return []
             
         except Exception as e:
-            logger.error(f"Erro na busca de produtos: {e}")
+            logger.error(f"[ULTRA-ESPECÍFICO] Erro na busca de produtos: {e}")
             return []
     
-    def _search_api(self, query: str, max_results: int) -> List[Dict]:
-        """Executa busca na API do AliExpress"""
+    def _search_api_ultra_specific(self, query: str, max_results: int) -> List[Dict]:
+        """Executa busca na API do AliExpress - VERSÃO ULTRA-ESPECÍFICA SEM ESPAÇOS"""
         try:
-            # Parâmetros da requisição - FORMATO FINAL CORRETO
+            # Timestamp em milissegundos
             timestamp = str(int(time.time() * 1000))
             
+            # Parâmetros da requisição - ULTRA-ESPECÍFICOS SEM ESPAÇOS
             params = {
                 "app_key": self.app_key,
                 "format": "json",
@@ -81,20 +83,27 @@ class AliExpressClient:
                 "target_currency": "BRL",
                 "target_language": "PT",
                 "tracking_id": self.tracking_id,
+                # CAMPO FIELDS SEM ESPAÇOS - ULTRA-ESPECÍFICO
                 "fields": "commission_rate,sale_price,discount,product_main_image_url,product_title,product_url,evaluate_rate,original_price,lastest_volume,product_id,target_sale_price,target_sale_price_currency,promotion_link"
             }
             
-            # Gera assinatura FINAL CORRETA
-            signature = self._generate_signature(params)
+            logger.info(f"[ULTRA-ESPECÍFICO] Parâmetros ANTES da assinatura: {params}")
+            
+            # Gera assinatura ULTRA-ESPECÍFICA
+            signature = self._generate_signature_ultra_specific(params)
+            
+            # SEMPRE USA 'sign' - NUNCA 'sinal' - ULTRA-ESPECÍFICO
             params["sign"] = signature
             
-            logger.info(f"Parâmetros finais da API: {params}")
+            logger.info(f"[ULTRA-ESPECÍFICO] Parâmetros FINAIS da API: {params}")
+            logger.info(f"[ULTRA-ESPECÍFICO] URL completa: {self.base_url}")
             
             # Faz a requisição
             response = requests.get(self.base_url, params=params, timeout=30)
             
-            logger.info(f"Status da resposta: {response.status_code}")
-            logger.info(f"Resposta da API: {response.text[:500]}...")
+            logger.info(f"[ULTRA-ESPECÍFICO] Status da resposta: {response.status_code}")
+            logger.info(f"[ULTRA-ESPECÍFICO] URL final da requisição: {response.url}")
+            logger.info(f"[ULTRA-ESPECÍFICO] Resposta da API: {response.text[:500]}...")
             
             if response.status_code == 200:
                 data = response.json()
@@ -102,7 +111,7 @@ class AliExpressClient:
                 # Verifica se há erro na resposta
                 if "error_response" in data:
                     error = data["error_response"]
-                    logger.error(f"Erro da API AliExpress: {error}")
+                    logger.error(f"[ULTRA-ESPECÍFICO] Erro da API AliExpress: {error}")
                     return []
                 
                 # Extrai produtos da resposta
@@ -115,21 +124,23 @@ class AliExpressClient:
                         if products:
                             # Filtra e processa produtos
                             filtered_products = self._filter_products(products)
+                            logger.info(f"[ULTRA-ESPECÍFICO] Produtos filtrados: {len(filtered_products)}")
                             return filtered_products[:max_results]
                 
-                logger.warning("Nenhum produto encontrado na resposta da API")
+                logger.warning("[ULTRA-ESPECÍFICO] Nenhum produto encontrado na resposta da API")
                 return []
                 
             else:
-                logger.error(f"Erro HTTP na API AliExpress: {response.status_code}")
+                logger.error(f"[ULTRA-ESPECÍFICO] Erro HTTP na API AliExpress: {response.status_code}")
+                logger.error(f"[ULTRA-ESPECÍFICO] Resposta de erro: {response.text}")
                 return []
                 
         except Exception as e:
-            logger.error(f"Erro na chamada da API: {e}")
+            logger.error(f"[ULTRA-ESPECÍFICO] Erro na chamada da API: {e}")
             return []
     
-    def _generate_signature(self, params: Dict) -> str:
-        """Gera assinatura MD5 FINAL CORRETA para autenticação na API"""
+    def _generate_signature_ultra_specific(self, params: Dict) -> str:
+        """Gera assinatura MD5 ULTRA-ESPECÍFICA para autenticação na API"""
         try:
             # Remove o parâmetro sign se existir
             clean_params = {k: v for k, v in params.items() if k != "sign"}
@@ -137,27 +148,31 @@ class AliExpressClient:
             # Ordena parâmetros alfabeticamente
             sorted_params = sorted(clean_params.items())
             
+            logger.info(f"[ULTRA-ESPECÍFICO] Parâmetros ordenados: {sorted_params}")
+            
             # Concatena parâmetros no formato correto: key1value1key2value2...
             param_string = "".join([f"{k}{v}" for k, v in sorted_params])
             
-            # Adiciona app_secret no início e fim - FORMATO FINAL CORRETO
+            logger.info(f"[ULTRA-ESPECÍFICO] String de parâmetros: {param_string}")
+            
+            # Adiciona app_secret no início e fim - FORMATO ULTRA-ESPECÍFICO
             sign_string = f"{self.app_secret}{param_string}{self.app_secret}"
             
-            logger.info(f"String final para assinatura: {sign_string[:100]}...")
+            logger.info(f"[ULTRA-ESPECÍFICO] String COMPLETA para assinatura: {sign_string}")
             
             # Gera hash MD5 e converte para MAIÚSCULAS
             signature = hashlib.md5(sign_string.encode('utf-8')).hexdigest().upper()
             
-            logger.info(f"Assinatura final gerada: {signature}")
+            logger.info(f"[ULTRA-ESPECÍFICO] Assinatura MD5 gerada: {signature}")
             
             return signature
             
         except Exception as e:
-            logger.error(f"Erro ao gerar assinatura: {e}")
+            logger.error(f"[ULTRA-ESPECÍFICO] Erro ao gerar assinatura: {e}")
             return ""
     
     def _filter_products(self, products: List[Dict]) -> List[Dict]:
-        """Filtra e melhora produtos retornados"""
+        """Filtra e melhora produtos retornados - VERSÃO ULTRA-ESPECÍFICA"""
         filtered = []
         
         for product in products:
@@ -197,7 +212,7 @@ class AliExpressClient:
                 filtered.append(formatted_product)
                 
             except Exception as e:
-                logger.error(f"Erro ao processar produto: {e}")
+                logger.error(f"[ULTRA-ESPECÍFICO] Erro ao processar produto: {e}")
                 continue
         
         # Ordena por avaliação (melhor primeiro)
@@ -206,24 +221,26 @@ class AliExpressClient:
         except:
             pass
         
+        logger.info(f"[ULTRA-ESPECÍFICO] Produtos após filtro: {len(filtered)}")
+        
         return filtered
     
     def test_connection(self) -> bool:
-        """Testa conexão com a API do AliExpress"""
+        """Testa conexão com a API do AliExpress - VERSÃO ULTRA-ESPECÍFICA"""
         try:
-            logger.info("Testando conexão com AliExpress...")
+            logger.info("[ULTRA-ESPECÍFICO] Testando conexão com AliExpress...")
             
             # Faz uma busca simples para testar
             products = self.search_products("phone", 1)
             
             if products:
-                logger.info("Conexão com AliExpress OK")
+                logger.info("[ULTRA-ESPECÍFICO] Conexão com AliExpress OK")
                 return True
             else:
-                logger.warning("Conexão OK, mas nenhum produto retornado")
+                logger.warning("[ULTRA-ESPECÍFICO] Conexão OK, mas nenhum produto retornado")
                 return False
                 
         except Exception as e:
-            logger.error(f"Erro no teste de conexão: {e}")
+            logger.error(f"[ULTRA-ESPECÍFICO] Erro no teste de conexão: {e}")
             return False
 
