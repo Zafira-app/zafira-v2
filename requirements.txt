@@ -13,3 +13,4 @@ python-dotenv==1.0.0
 
 # Logging e monitoramento
 Werkzeug==2.3.7
+# Forçando novo build para limpar cache - 21/08/2025
