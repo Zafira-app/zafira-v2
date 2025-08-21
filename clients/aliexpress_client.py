@@ -8,7 +8,7 @@ from typing import Optional, List, Dict, Any
 logger = logging.getLogger(__name__)
 
 class AliExpressClient:
-    """Cliente para interagir com a API do AliExpress Affiliate - VERSÃO FINAL CORRIGIDA."""
+    """Cliente para interagir com a API do AliExpress Affiliate - TESTE OFICIAL."""
     
     def __init__(self):
         self.app_key = os.getenv("ALIEXPRESS_APP_KEY")
@@ -19,127 +19,123 @@ class AliExpressClient:
         if not all([self.app_key, self.app_secret, self.tracking_id]):
             logger.error("Credenciais do AliExpress não configuradas!")
         else:
-            logger.info("Cliente AliExpress FINAL CORRIGIDO inicializado com sucesso")
+            logger.info("Cliente AliExpress TESTE OFICIAL inicializado com sucesso")
 
-    def search_products(self, keywords: str, max_retries: int = 3) -> List[Dict[str, Any]]:
+    def search_products(self, keywords: str, max_retries: int = 1) -> List[Dict[str, Any]]:
         """Busca produtos no AliExpress usando palavras-chave."""
         if not all([self.app_key, self.app_secret, self.tracking_id]):
             logger.error("Não é possível buscar produtos, credenciais ausentes.")
             return []
 
-        for attempt in range(max_retries):
-            try:
-                logger.info(f"[FINAL] Tentativa {attempt + 1}: Buscando produtos para: {keywords}")
+        try:
+            logger.info(f"[TESTE] Buscando produtos para: {keywords}")
+            
+            # Timestamp atual em milissegundos
+            timestamp = str(int(time.time() * 1000))
+            
+            # Parâmetros EXATOS da documentação oficial
+            params = {
+                'app_key': self.app_key,
+                'format': 'json',
+                'method': 'aliexpress.affiliate.product.query',
+                'sign_method': 'md5',
+                'timestamp': timestamp,
+                'v': '2.0',
+                'keywords': keywords,
+                'page_size': '6',
+                'ship_to_country': 'BR',
+                'sort': 'SALE_PRICE_ASC',
+                'target_currency': 'BRL',
+                'target_language': 'PT',
+                'tracking_id': self.tracking_id,
+                'fields': 'commission_rate,sale_price,discount,product_main_image_url,product_title,product_url,evaluate_rate,original_price,lastest_volume,product_id,target_sale_price,target_sale_price_currency,promotion_link'
+            }
+            
+            # Gerar assinatura seguindo EXATAMENTE a documentação
+            signature = self._generate_signature_exact(params)
+            params['sign'] = signature
+            
+            logger.info(f"[TESTE] Fazendo requisição para API")
+            logger.info(f"[TESTE] Timestamp: {timestamp}")
+            logger.info(f"[TESTE] Assinatura: {signature}")
+            
+            # Fazer requisição
+            response = requests.get(self.api_url, params=params, timeout=30)
+            
+            logger.info(f"[TESTE] Status da resposta: {response.status_code}")
+            logger.info(f"[TESTE] URL completa: {response.url}")
+            
+            if response.status_code == 200:
+                data = response.json()
+                logger.info(f"[TESTE] Resposta completa: {data}")
                 
-                # Timestamp atual em milissegundos
-                timestamp = str(int(time.time() * 1000))
+                # Verificar se há erro na resposta
+                if 'error_response' in data:
+                    error_info = data['error_response']
+                    logger.error(f"[TESTE] Erro da API AliExpress: {error_info}")
+                    return []
                 
-                # Parâmetros da API - SEM ESPAÇOS EXTRAS
-                params = {
-                    'app_key': self.app_key,
-                    'format': 'json',
-                    'method': 'aliexpress.affiliate.product.query',
-                    'sign_method': 'md5',
-                    'timestamp': timestamp,
-                    'v': '2.0',
-                    'keywords': keywords,
-                    'page_size': '6',
-                    'ship_to_country': 'BR',
-                    'sort': 'SALE_PRICE_ASC',
-                    'target_currency': 'BRL',
-                    'target_language': 'PT',
-                    'tracking_id': self.tracking_id,
-                    'fields': 'commission_rate,sale_price,discount,product_main_image_url,product_title,product_url,evaluate_rate,original_price,lastest_volume,product_id,target_sale_price,target_sale_price_currency,promotion_link'
-                }
-                
-                # Gerar assinatura corrigida
-                signature = self._generate_signature_fixed(params)
-                params['sign'] = signature
-                
-                logger.info(f"[FINAL] Fazendo requisição para API")
-                
-                # Fazer requisição
-                response = requests.get(self.api_url, params=params, timeout=30)
-                
-                logger.info(f"[FINAL] Status da resposta: {response.status_code}")
-                
-                if response.status_code == 200:
-                    data = response.json()
+                # Processar resposta de sucesso
+                if 'aliexpress_affiliate_product_query_response' in data:
+                    query_response = data['aliexpress_affiliate_product_query_response']
                     
-                    # Verificar se há erro na resposta
-                    if 'error_response' in data:
-                        error_info = data['error_response']
-                        logger.error(f"[FINAL] Erro da API AliExpress: {error_info}")
+                    if 'resp_result' in query_response:
+                        resp_result = query_response['resp_result']
                         
-                        # Se for erro de assinatura, tentar novamente
-                        if error_info.get('code') == 'IncompleteSignature':
-                            logger.warning(f"[FINAL] Tentativa {attempt + 1}: Erro de assinatura, tentando novamente...")
-                            time.sleep(1)
-                            continue
+                        if 'result' in resp_result and 'products' in resp_result['result']:
+                            products = resp_result['result']['products']
+                            logger.info(f"[TESTE] SUCESSO! Encontrados {len(products)} produtos")
+                            return products
                         else:
-                            logger.error(f"[FINAL] Erro não relacionado à assinatura: {error_info}")
-                            return []
-                    
-                    # Processar resposta de sucesso
-                    if 'aliexpress_affiliate_product_query_response' in data:
-                        query_response = data['aliexpress_affiliate_product_query_response']
-                        
-                        if 'resp_result' in query_response:
-                            resp_result = query_response['resp_result']
-                            
-                            if 'result' in resp_result and 'products' in resp_result['result']:
-                                products = resp_result['result']['products']
-                                logger.info(f"[FINAL] SUCESSO! Encontrados {len(products)} produtos")
-                                return products
-                            else:
-                                logger.warning("[FINAL] Nenhum produto encontrado na resposta")
-                                return []
-                        else:
-                            logger.warning("[FINAL] Estrutura de resposta inesperada")
+                            logger.warning("[TESTE] Nenhum produto encontrado na resposta")
                             return []
                     else:
-                        logger.warning("[FINAL] Resposta não contém dados de produtos")
+                        logger.warning("[TESTE] Estrutura de resposta inesperada")
                         return []
                 else:
-                    logger.error(f"[FINAL] Erro HTTP: {response.status_code}")
+                    logger.warning("[TESTE] Resposta não contém dados de produtos")
                     return []
-                    
-            except Exception as e:
-                logger.error(f"[FINAL] Exceção na tentativa {attempt + 1}: {e}")
-                if attempt < max_retries - 1:
-                    time.sleep(2)
-                    continue
-                else:
-                    return []
+            else:
+                logger.error(f"[TESTE] Erro HTTP: {response.status_code}")
+                logger.error(f"[TESTE] Resposta: {response.text}")
+                return []
+                
+        except Exception as e:
+            logger.error(f"[TESTE] Exceção: {e}")
+            return []
         
-        logger.error(f"[FINAL] Todas as {max_retries} tentativas falharam")
         return []
 
-    def _generate_signature_fixed(self, params: Dict[str, str]) -> str:
+    def _generate_signature_exact(self, params: Dict[str, str]) -> str:
         """
-        Gera a assinatura MD5 CORRIGIDA - sem espaços extras.
+        Gera a assinatura MD5 seguindo EXATAMENTE o exemplo da documentação oficial.
+        
+        Exemplo da documentação:
+        app_secret + sorted_params_string + app_secret
         """
         
-        # 1. Filtrar e ordenar parâmetros (excluindo 'sign' se existir)
+        # 1. Remover 'sign' se existir
         filtered_params = {k: v for k, v in params.items() if k != 'sign'}
+        
+        # 2. Ordenar alfabeticamente
         sorted_items = sorted(filtered_params.items())
         
-        # 2. Concatenar parâmetros SEM ESPAÇOS: key1value1key2value2...
-        param_string = ''
-        for k, v in sorted_items:
-            # CORREÇÃO: Remove qualquer espaço extra dos valores
-            clean_value = str(v).replace(' ', '')
-            param_string += f'{k}{clean_value}'
+        logger.info(f"[TESTE] Parâmetros ordenados: {sorted_items}")
         
-        logger.info(f"[FINAL] String de parâmetros LIMPA: {param_string}")
+        # 3. Concatenar como: key1value1key2value2...
+        param_string = ''.join([f'{k}{v}' for k, v in sorted_items])
         
-        # 3. Adicionar app_secret no início e fim
+        logger.info(f"[TESTE] String de parâmetros: {param_string}")
+        
+        # 4. Adicionar app_secret no início e fim
         sign_string = f'{self.app_secret}{param_string}{self.app_secret}'
         
-        # 4. Calcular MD5 e converter para maiúsculo
+        logger.info(f"[TESTE] String completa para assinatura: {sign_string}")
+        
+        # 5. Calcular MD5 e converter para maiúsculo
         signature = hashlib.md5(sign_string.encode('utf-8')).hexdigest().upper()
         
-        logger.info(f"[FINAL] Assinatura MD5 corrigida: {signature}")
+        logger.info(f"[TESTE] Assinatura MD5 final: {signature}")
         
         return signature
 
