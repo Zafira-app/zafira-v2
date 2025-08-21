@@ -1,5 +1,5 @@
 """
-Zafira V2.0 - Cliente AliExpress CORRIGIDO
+Zafira V2.0 - Cliente AliExpress FINAL CORRIGIDO
 Integração robusta com a API oficial do AliExpress
 """
 
@@ -64,14 +64,13 @@ class AliExpressClient:
     def _search_api(self, query: str, max_results: int) -> List[Dict]:
         """Executa busca na API do AliExpress"""
         try:
-            # Parâmetros da requisição - FORMATO CORRETO
+            # Parâmetros da requisição - FORMATO FINAL CORRETO
             timestamp = str(int(time.time() * 1000))
             
             params = {
                 "app_key": self.app_key,
                 "format": "json",
                 "method": "aliexpress.affiliate.product.query",
-                "partner_id": self.tracking_id,
                 "sign_method": "md5",
                 "timestamp": timestamp,
                 "v": "2.0",
@@ -85,11 +84,11 @@ class AliExpressClient:
                 "fields": "commission_rate,sale_price,discount,product_main_image_url,product_title,product_url,evaluate_rate,original_price,lastest_volume,product_id,target_sale_price,target_sale_price_currency,promotion_link"
             }
             
-            # Gera assinatura CORRETA
+            # Gera assinatura FINAL CORRETA
             signature = self._generate_signature(params)
             params["sign"] = signature
             
-            logger.info(f"Parâmetros da API: {params}")
+            logger.info(f"Parâmetros finais da API: {params}")
             
             # Faz a requisição
             response = requests.get(self.base_url, params=params, timeout=30)
@@ -130,7 +129,7 @@ class AliExpressClient:
             return []
     
     def _generate_signature(self, params: Dict) -> str:
-        """Gera assinatura MD5 CORRETA para autenticação na API"""
+        """Gera assinatura MD5 FINAL CORRETA para autenticação na API"""
         try:
             # Remove o parâmetro sign se existir
             clean_params = {k: v for k, v in params.items() if k != "sign"}
@@ -141,15 +140,15 @@ class AliExpressClient:
             # Concatena parâmetros no formato correto: key1value1key2value2...
             param_string = "".join([f"{k}{v}" for k, v in sorted_params])
             
-            # Adiciona app_secret no início e fim - FORMATO CORRETO
+            # Adiciona app_secret no início e fim - FORMATO FINAL CORRETO
             sign_string = f"{self.app_secret}{param_string}{self.app_secret}"
             
-            logger.info(f"String para assinatura: {sign_string[:100]}...")
+            logger.info(f"String final para assinatura: {sign_string[:100]}...")
             
             # Gera hash MD5 e converte para MAIÚSCULAS
             signature = hashlib.md5(sign_string.encode('utf-8')).hexdigest().upper()
             
-            logger.info(f"Assinatura gerada: {signature}")
+            logger.info(f"Assinatura final gerada: {signature}")
             
             return signature
             
