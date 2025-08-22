@@ -1,4 +1,4 @@
-# zafira_core.py - VERSÃO FINAL COM CORREÇÃO DO 'bool' object is not subscriptable
+# zafira_core.py - VERSÃO FINALÍSSIMA COM CORREÇÃO DO NameError
 
 import logging
 from typing import Dict, Optional
@@ -27,7 +27,6 @@ class ZafiraCore:
             else:
                 return self._handle_fallback(sender_id)
         except Exception as e:
-            # Log do erro específico que aconteceu
             logger.error(f"Exceção não tratada ao processar mensagem: {e}", exc_info=True)
             self.whatsapp_client.send_error_message(sender_id)
             return False
@@ -35,7 +34,7 @@ class ZafiraCore:
     def _detect_intent(self, message: str) -> str:
         message_lower = message.lower()
         greeting_keywords = ["oi", "ola", "olá", "bom dia", "boa tarde", "boa noite", "e aí", "eae", "tudo bem", "zafira"]
-        product_keywords = ["quero", "gostaria", "procuro", "encontrar", "achar", "tem", "vende", "preço", "valor", "quanto custa", "comprar"]
+        product_keywords = ["quero", "gostaria", "procuro", "encontrar", "achar", "tem", "vende", "preço", "valor", "quanto custa", "comprar", "preciso de"]
 
         if any(keyword in message_lower for keyword in greeting_keywords):
             if message_lower.strip() == "zafira":
@@ -44,7 +43,8 @@ class ZafiraCore:
                 return "produto"
             return "saudacao"
 
-        if any(keyword in message_lower for keyword_keywords in product_keywords):
+        # FIX: Corrigido o erro de digitação de 'keyword' para 'prod_keyword'
+        if any(prod_keyword in message_lower for prod_keyword in product_keywords):
             return "produto"
             
         return "desconhecido"
@@ -60,9 +60,9 @@ class ZafiraCore:
         if not search_terms:
             return self._handle_fallback(sender_id)
 
+        # Assumindo que você já adicionou o IP 54.188.71.94 na whitelist
         products = self.aliexpress_client.search_products(search_terms)
 
-        # FIX: Verifica se 'products' é uma lista (e não False) antes de prosseguir
         if products and isinstance(products, list):
             logger.info(f"Encontrados {len(products)} produtos para '{search_terms}'")
             response_text = self._format_product_response(products, search_terms)
@@ -77,7 +77,7 @@ class ZafiraCore:
         return self.whatsapp_client.send_text_message(sender_id, response_text)
 
     def _extract_search_terms(self, message: str) -> str:
-        stopwords = ["quero", "gostaria", "procuro", "encontrar", "achar", "tem", "vende", "preço", "valor", "quanto custa", "comprar", "um", "uma", "o", "a", "de", "do", "da", "para", "com"]
+        stopwords = ["quero", "gostaria", "procuro", "encontrar", "achar", "tem", "vende", "preço", "valor", "quanto custa", "comprar", "um", "uma", "o", "a", "de", "do", "da", "para", "com", "preciso"]
         message_clean = re.sub(r'[^\w\s]', '', message)
         words = message_clean.lower().split()
         search_terms = [word for word in words if word not in stopwords]
@@ -91,13 +91,11 @@ class ZafiraCore:
         
         product_lines = []
         for i, product in enumerate(products[:3]):
-            # Usando .get() para segurança, caso algum campo não venha na resposta
             title = product.get('product_title', 'Produto sem título')
             price_info = product.get('target_sale_price', {})
             price = price_info.get('sale_price', 'Preço indisponível')
             rating = product.get('evaluate_rate', 'Sem avaliação')
             link = product.get('promotion_link', '')
-            image_url = product.get('product_main_image_url', '')
 
             if len(title) > 60:
                 title = title[:57] + "..."
