@@ -15,7 +15,7 @@ class AliExpressClient:
     autenticação de duas etapas com Access Token, conforme a documentação oficial.
     """
     def __init__(self):
-        self.api_url = "https://api-sg.aliexpress.com/sync"
+        self.api_url = "https://zafira-proxy.fly.dev/sync"
         self.app_key = os.getenv("ALIEXPRESS_APP_KEY" )
         self.app_secret = os.getenv("ALIEXPRESS_APP_SECRET")
         self.tracking_id = os.getenv("ALIEXPRESS_TRACKING_ID")
