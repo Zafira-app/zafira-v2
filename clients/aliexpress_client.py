@@ -1,145 +1,112 @@
-import os
+# aliexpress_client.py - VERSÃO FINAL COM DETECTOR DE IP
 import requests
 import hashlib
 import time
 import logging
-from typing import List, Dict, Any
-import urllib.parse
+import os
+from urllib.parse import urlencode
 
 logger = logging.getLogger(__name__)
 
 class AliExpressClient:
-    """Cliente para interagir com a API do AliExpress Affiliate - SOLUÇÃO STACKOVERFLOW."""
-    
+    """
+    Cliente para interagir com a API do AliExpress.
+    VERSÃO FINAL: Inclui detector de IP de saída para debug do Whitelist.
+    """
     def __init__(self):
-        self.app_key = os.getenv("ALIEXPRESS_APP_KEY")
+        self.api_url = "https://api-sg.aliexpress.com/sync"
+        self.app_key = os.getenv("ALIEXPRESS_APP_KEY" )
         self.app_secret = os.getenv("ALIEXPRESS_APP_SECRET")
         self.tracking_id = os.getenv("ALIEXPRESS_TRACKING_ID")
-        self.api_url = "https://api-sg.aliexpress.com/sync"
         
         if not all([self.app_key, self.app_secret, self.tracking_id]):
             logger.error("Credenciais do AliExpress não configuradas!")
         else:
-            logger.info("Cliente AliExpress STACKOVERFLOW inicializado com sucesso")
-    
-    def _generate_signature(self, params: Dict[str, Any]) -> str:
-        """
-        Gera assinatura MD5 usando a solução exata do Stack Overflow.
-        Remove símbolos & e = antes de gerar o hash.
-        """
-        # Ordena os parâmetros
+            # A solução do StackOverflow funcionou, mantemos ela.
+            logger.info("Cliente AliExpress (SOLUÇÃO STACKOVERFLOW) inicializado com sucesso")
+
+    def _get_public_ip(self) -> str:
+        """Descobre o IP público de saída do servidor para adicioná-lo à whitelist."""
+        try:
+            response = requests.get('https://api.ipify.org?format=json', timeout=10 )
+            response.raise_for_status()
+            ip = response.json()['ip']
+            logger.info(f"O IP de saída detectado é: {ip}")
+            return ip
+        except Exception as e:
+            logger.error(f"Falha ao detectar o IP de saída: {e}")
+            return "Não foi possível detectar o IP"
+
+    def _generate_signature(self, params: dict) -> str:
+        """Gera a assinatura MD5 conforme a solução que funcionou (sem & e =)."""
+        # Ordena os parâmetros em ordem alfabética
         sorted_params = sorted(params.items())
         
-        # Cria string de parâmetros
-        param_string = ""
-        for key, value in sorted_params:
-            if param_string == "":
-                param_string = f"{key}={value}"
-            else:
-                param_string = f"{param_string}&{key}={value}"
+        # Concatena os parâmetros em uma única string
+        concatenated_string = "".join([f"{k}{v}" for k, v in sorted_params])
         
-        # SOLUÇÃO DO STACKOVERFLOW: Remove & e = da string de assinatura
-        sign_string = param_string.replace("&amp;", "")
-        sign_string = sign_string.replace("&", "")
-        sign_string = sign_string.replace("=", "")
+        # Adiciona o app_secret no início e no fim
+        string_to_sign = self.app_secret + concatenated_string + self.app_secret
         
-        # Gera assinatura MD5
-        signature_input = f"{self.app_secret}{sign_string}{self.app_secret}"
-        signature = hashlib.md5(signature_input.encode('utf-8')).hexdigest().upper()
-        
-        logger.info(f"[STACKOVERFLOW] String de parâmetros: {param_string}")
-        logger.info(f"[STACKOVERFLOW] String para assinatura (sem & e =): {sign_string}")
-        logger.info(f"[STACKOVERFLOW] Input da assinatura: {signature_input}")
-        logger.info(f"[STACKOVERFLOW] Assinatura MD5: {signature}")
-        
+        # Gera o hash MD5 e converte para maiúsculas
+        signature = hashlib.md5(string_to_sign.encode('utf-8')).hexdigest().upper()
         return signature
-    
-    def search_products(self, keywords: str, page_size: int = 6) -> List[Dict[str, Any]]:
-        """
-        Busca produtos usando a API do AliExpress com a solução do Stack Overflow.
-        """
-        logger.info(f"[STACKOVERFLOW] Buscando produtos para: {keywords}")
-        
-        # Parâmetros da API
-        params = {
-            "app_key": self.app_key,
-            "format": "json",
-            "method": "aliexpress.affiliate.product.query",
-            "sign_method": "md5",
-            "timestamp": str(int(time.time() * 1000)),
-            "keywords": keywords,
-            "target_currency": "BRL",
-            "target_language": "PT",
-            "ship_to_country": "BR",
-            "tracking_id": self.tracking_id,
-            "page_size": str(page_size),
-            "sort": "SALE_PRICE_ASC",
-            "fields": "commission_rate,sale_price,discount,product_main_image_url,product_title,product_url,evaluate_rate,original_price,lastest_volume,product_id,target_sale_price,target_sale_price_currency,promotion_link"
-        }
-        
-        # Gera assinatura usando solução do Stack Overflow
-        signature = self._generate_signature(params)
-        
-        # Adiciona assinatura aos parâmetros
-        params["sign"] = signature
-        
-        try:
-            # Faz requisição
-            logger.info(f"[STACKOVERFLOW] Fazendo requisição para API")
-            response = requests.get(self.api_url, params=params, timeout=30)
-            
-            logger.info(f"[STACKOVERFLOW] Status da resposta: {response.status_code}")
-            logger.info(f"[STACKOVERFLOW] URL completa: {response.url}")
-            
-            if response.status_code == 200:
-                data = response.json()
-                logger.info(f"[STACKOVERFLOW] Resposta: {data}")
-                
-                # Verifica se há erro na resposta
-                if "error_response" in data:
-                    error = data["error_response"]
-                    logger.error(f"[STACKOVERFLOW] Erro da API AliExpress: {error}")
-                    return []
-                
-                # Extrai produtos da resposta
-                if "aliexpress_affiliate_product_query_response" in data:
-                    resp_result = data["aliexpress_affiliate_product_query_response"]["resp_result"]
-                    if "result" in resp_result and "products" in resp_result["result"]:
-                        products = resp_result["result"]["products"]["product"]
-                        logger.info(f"[STACKOVERFLOW] {len(products)} produtos encontrados")
-                        return self._format_products(products)
-                
-                logger.warning("[STACKOVERFLOW] Nenhum produto encontrado na resposta")
-                return []
-            else:
-                logger.error(f"[STACKOVERFLOW] Erro HTTP: {response.status_code}")
-                return []
-                
-        except Exception as e:
-            logger.error(f"[STACKOVERFLOW] Erro na requisição: {str(e)}")
-            return []
-    
-    def _format_products(self, products: List[Dict]) -> List[Dict[str, Any]]:
-        """Formata produtos para exibição."""
-        formatted_products = []
-        
-        for product in products:
-            try:
-                formatted_product = {
-                    "title": product.get("product_title", "Produto sem título"),
-                    "price": f"R$ {product.get('target_sale_price', '0')}",
-                    "original_price": f"R$ {product.get('target_original_price', '0')}",
-                    "discount": product.get("discount", "0%"),
-                    "rating": product.get("evaluate_rate", "N/A"),
-                    "sales": product.get("lastest_volume", 0),
-                    "commission": product.get("commission_rate", "0%"),
-                    "image_url": product.get("product_main_image_url", ""),
-                    "product_url": product.get("promotion_link", product.get("product_detail_url", ""))
-                }
-                formatted_products.append(formatted_product)
-            except Exception as e:
-                logger.error(f"Erro ao formatar produto: {e}")
-                continue
-        
-        return formatted_products
 
+    def search_products(self, keywords: str, limit: int = 3) -> list | bool:
+        """Busca produtos na API do AliExpress."""
+        
+        # PASSO 1: Descobrir e logar o IP de saída
+        self._get_public_ip()
+
+        if not all([self.app_key, self.app_secret, self.tracking_id]):
+            logger.error("Busca cancelada, credenciais do AliExpress ausentes.")
+            return False
+
+        timestamp = str(int(time.time() * 1000))
+        
+        params = {
+            'app_key': self.app_key,
+            'method': 'aliexpress.affiliate.product.query',
+            'sign_method': 'md5',
+            'timestamp': timestamp,
+            'keywords': keywords,
+            'tracking_id': self.tracking_id,
+            'page_size': str(limit),
+            'target_language': 'PT',
+            'target_currency': 'BRL',
+            'ship_to_country': 'BR'
+        }
+
+        # Gera a assinatura com os parâmetros
+        params['sign'] = self._generate_signature(params)
+        
+        full_url = f"{self.api_url}?{urlencode(params)}"
+        logger.info(f"Executando requisição para a URL: {full_url}")
+
+        try:
+            response = requests.get(self.api_url, params=params, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+            
+            # Log da resposta completa para depuração final
+            logger.info(f"Resposta completa da API AliExpress: {data}")
+
+            # Verifica se a resposta contém o erro de IP
+            if 'error_response' in data:
+                error_info = data['error_response']
+                logger.error(f"Erro da API AliExpress: Código {error_info.get('code')}, Mensagem: {error_info.get('msg')}")
+                return False
+
+            # Processa a resposta de sucesso
+            result = data.get('aliexpress_affiliate_product_query_response', {}).get('resp_result', {}).get('result', {})
+            products = result.get('products', {}).get('product', [])
+            
+            if not products:
+                logger.warning("A busca foi bem-sucedida, mas nenhum produto foi retornado.")
+                return []
+            
+            return products
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Exceção na requisição para a API do AliExpress: {e}")
+            return False
