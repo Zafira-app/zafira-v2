@@ -1,94 +1,215 @@
-"""
-Zafira V2.0 - Webhook Handler Principal
-Assistente inteligente de compras para WhatsApp
-"""
+# app.py - VERSÃO DE DIAGNÓSTICO PARA DESCOBRIR O IP NA RENDER
 
-from flask import Flask, request, jsonify
 import os
+import json
 import logging
-from zafira_core import ZafiraCore
+import re
+import requests
+import hashlib
+import time
+from flask import Flask, request, jsonify
+from dotenv import load_dotenv
 
-# Configuração de logging
-logging.basicConfig(level=logging.INFO)
+# ==============================================================================
+# CONFIGURAÇÃO BÁSICA
+# ==============================================================================
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
 logger = logging.getLogger(__name__)
+load_dotenv()
 
-app = Flask(__name__)
-
-# Inicializa o cérebro da Zafira
-zafira = ZafiraCore()
-
-@app.route('/', methods=['GET'])
-def health_check():
-    """Verificação de saúde do serviço"""
-    return "Zafira V2.0 - Assistente inteligente de compras ativa! 🛍️", 200
-
-@app.route('/webhook', methods=['GET'])
-def webhook_verification():
-    """Verificação do webhook do WhatsApp"""
-    verify_token = os.getenv('WHATSAPP_VERIFY_TOKEN')
-    
-    if request.args.get('hub.verify_token') == verify_token:
-        logger.info("Webhook verificado com sucesso")
-        return request.args.get('hub.challenge'), 200
-    else:
-        logger.error("Token de verificação inválido")
-        return "Token inválido", 403
-
-@app.route('/webhook', methods=['POST'])
-def webhook_handler():
-    """Handler principal para mensagens do WhatsApp"""
-    try:
-        data = request.get_json()
-        logger.info(f"Webhook recebido: {data}")
-        
-        # Verifica se há mensagens na requisição
-        if 'entry' in data:
-            for entry in data['entry']:
-                if 'changes' in entry:
-                    for change in entry['changes']:
-                        if 'value' in change and 'messages' in change['value']:
-                            for message in change['value']['messages']:
-                                # Processa cada mensagem
-                                process_message(message, change['value'])
-        
-        return jsonify({"status": "success"}), 200
-        
-    except Exception as e:
-        logger.error(f"Erro no webhook: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-def process_message(message, value):
-    """Processa uma mensagem individual"""
-    try:
-        # Extrai informações da mensagem
-        user_id = message['from']
-        message_text = message.get('text', {}).get('body', '')
-        message_type = message.get('type', 'text')
-        
-        logger.info(f"Processando mensagem de {user_id}: {message_text}")
-        
-        # Ignora mensagens que não são texto
-        if message_type != 'text' or not message_text:
-            logger.info("Mensagem ignorada (não é texto)")
-            return
-        
-        # Processa com o cérebro da Zafira
-        response = zafira.process_message(user_id, message_text)
-        
-        if response:
-            logger.info(f"Resposta gerada: {response[:100]}...")
+# ==============================================================================
+# CLASSE DO CLIENTE WHATSAPP
+# ==============================================================================
+class WhatsAppClient:
+    def __init__(self):
+        self.api_url = "https://graph.facebook.com/v20.0/"
+        self.token = os.getenv("WHATSAPP_TOKEN" )
+        self.phone_number_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
+        if not all([self.token, self.phone_number_id]):
+            logger.error("Credenciais do WhatsApp não configuradas!")
         else:
-            logger.warning("Nenhuma resposta gerada")
-            
-    except Exception as e:
-        logger.error(f"Erro ao processar mensagem: {e}")
-        # Em caso de erro, tenta enviar uma mensagem de erro amigável
-        try:
-            zafira.send_error_message(user_id)
-        except:
-            pass
+            logger.info("Cliente WhatsApp inicializado com sucesso.")
 
-if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 8080))
-    logger.info(f"Iniciando Zafira V2.0 na porta {port}")
-    app.run(host='0.0.0.0', port=port, debug=False)
+    def send_text_message(self, recipient_id: str, message: str) -> bool:
+        if not all([self.token, self.phone_number_id]):
+            logger.error("Não é possível enviar mensagem, credenciais ausentes.")
+            return False
+        
+        url = f"{self.api_url}{self.phone_number_id}/messages"
+        headers = {"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"}
+        payload = {"messaging_product": "whatsapp", "to": recipient_id, "type": "text", "text": {"body": message}}
+
+        try:
+            response = requests.post(url, headers=headers, json=payload, timeout=30)
+            response.raise_for_status()
+            logger.info(f"Mensagem enviada com sucesso para {recipient_id}.")
+            return True
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Exceção ao enviar mensagem para {recipient_id}: {e}")
+            return False
+
+# ==============================================================================
+# CLASSE DO CLIENTE ALIEXPRESS
+# ==============================================================================
+class AliExpressClient:
+    def __init__(self):
+        # Aponta DIRETAMENTE para a API do AliExpress.
+        self.api_url = "https://api-sg.aliexpress.com/sync"
+        self.app_key = os.getenv("ALIEXPRESS_APP_KEY" )
+        self.app_secret = os.getenv("ALIEXPRESS_APP_SECRET")
+        self.tracking_id = os.getenv("ALIEXPRESS_TRACKING_ID")
+        if not all([self.app_key, self.app_secret, self.tracking_id]):
+            logger.error("Credenciais críticas do AliExpress não configuradas!")
+        else:
+            logger.info("Cliente AliExpress (API Affiliate Direta) inicializado.")
+
+    def _generate_signature(self, params: dict) -> str:
+        sorted_params = sorted(params.items())
+        concatenated_string = "".join([f"{k}{v}" for k, v in sorted_params])
+        string_to_sign = self.app_secret + concatenated_string + self.app_secret
+        signature = hashlib.sha256(string_to_sign.encode('utf-8')).hexdigest().upper()
+        return signature
+
+    def search_products(self, keywords: str, limit: int = 3) -> list | bool:
+        params = {
+            'app_key': self.app_key,
+            'method': 'aliexpress.affiliate.product.query',
+            'sign_method': 'sha256',
+            'timestamp': str(int(time.time() * 1000)),
+            'keywords': keywords,
+            'tracking_id': self.tracking_id,
+            'page_size': str(limit),
+            'target_language': 'pt',
+            'target_currency': 'BRL',
+            'ship_to_country': 'BR'
+        }
+        params['sign'] = self._generate_signature(params)
+        
+        try:
+            response = requests.post(self.api_url, params=params, timeout=40)
+            logger.info(f"Resposta da API - Status: {response.status_code}, Texto: {response.text[:500]}")
+            response.raise_for_status()
+            data = response.json()
+            if 'error_response' in data:
+                error_info = data['error_response']
+                logger.error(f"Erro da API AliExpress: Código {error_info.get('code')}, Mensagem: {error_info.get('msg')}")
+                return False
+            result = data.get('aliexpress_affiliate_product_query_response', {}).get('resp_result', {}).get('result', {})
+            products = result.get('products', {}).get('product', [])
+            return products
+        except Exception as e:
+            logger.error(f"Exceção na busca de produtos: {e}", exc_info=True)
+            return False
+
+# ==============================================================================
+# CLASSE DO NÚCLEO DA ZAFIRA
+# ==============================================================================
+class ZafiraCore:
+    def __init__(self):
+        self.whatsapp_client = WhatsAppClient()
+        self.aliexpress_client = AliExpressClient()
+        logger.info("Zafira Core inicializada com sucesso.")
+
+    def process_message(self, sender_id: str, message: str):
+        logger.info(f"Processando mensagem de {sender_id}: '{message}'")
+        try:
+            intent = self._detect_intent(message)
+            if intent == "produto":
+                self._handle_product_intent(sender_id, message)
+            elif intent == "saudacao":
+                self._handle_greeting(sender_id)
+            else:
+                self._handle_fallback(sender_id)
+        except Exception as e:
+            logger.error(f"Exceção não tratada ao processar mensagem: {e}", exc_info=True)
+            self.whatsapp_client.send_text_message(sender_id, "Ops! 😅 Tive um probleminha técnico aqui dentro. Minha equipe já foi notificada. Por favor, tente novamente em um instante!")
+
+    def _detect_intent(self, message: str) -> str:
+        message_lower = message.lower().strip()
+        product_keywords = ["quero", "gostaria", "procuro", "encontrar", "achar", "tem", "vende", "preço", "valor", "quanto custa", "comprar", "preciso", "fone", "celular", "smartwatch", "vestido", "tenis", "mochila", "câmera", "drone", "caneca", "tablet"]
+        greeting_keywords = ["oi", "ola", "olá", "bom dia", "boa tarde", "boa noite", "e aí", "eae", "tudo bem", "zafira"]
+        if any(keyword in message_lower for keyword in product_keywords): return "produto"
+        if any(keyword in message_lower for keyword in greeting_keywords): return "saudacao"
+        return "desconhecido"
+
+    def _handle_greeting(self, sender_id: str):
+        response_text = "Oi! 😊 Sou a Zafira, sua assistente de compras! \n\nPosso te ajudar a encontrar as melhores ofertas no AliExpress. O que você está procurando hoje?"
+        self.whatsapp_client.send_text_message(sender_id, response_text)
+
+    def _handle_product_intent(self, sender_id: str, message: str):
+        search_terms = self._extract_search_terms(message)
+        if not search_terms:
+            self._handle_fallback(sender_id)
+            return
+        products = self.aliexpress_client.search_products(search_terms)
+        if products:
+            response_text = self._format_product_response(products, search_terms)
+        else:
+            response_text = f"Não encontrei produtos para '{search_terms}' no momento 😔. Tente descrever o produto de outra forma!"
+        self.whatsapp_client.send_text_message(sender_id, response_text)
+
+    def _handle_fallback(self, sender_id: str):
+        response_text = "Desculpe, não entendi o que você quis dizer. 🤔\n\nTente me dizer o que você quer comprar, por exemplo: 'Quero um fone bluetooth' ou 'Procuro um vestido de festa'."
+        self.whatsapp_client.send_text_message(sender_id, response_text)
+
+    def _extract_search_terms(self, message: str) -> str:
+        stopwords = ["quero", "gostaria", "procuro", "encontrar", "achar", "tem", "vende", "preço", "valor", "quanto custa", "comprar", "um", "uma", "o", "a", "de", "do", "da", "para", "com", "preciso", "reais", "até"]
+        message_clean = re.sub(r'[^\w\s]', '', message)
+        words = message_clean.lower().split()
+        return " ".join([word for word in words if word not in stopwords and not word.isdigit()])
+
+    def _format_product_response(self, products: list, query: str) -> str:
+        header = f"Aqui estão os melhores resultados para '{query}' que encontrei no AliExpress! 🚀\n\n"
+        product_lines = []
+        for i, product in enumerate(products[:3]):
+            title = product.get('product_title', 'Produto sem título')
+            price = product.get('target_sale_price', 'Preço indisponível')
+            rating = product.get('evaluate_rate', 'Sem avaliação')
+            link = product.get('promotion_link', '')
+            if len(title) > 60: title = title[:57] + "..."
+            line = f"*{i+1}. {title}*\n💰 *Preço:* {price}\n⭐ *Avaliação:* {rating}\n🔗 *Link:* {link}\n"
+            product_lines.append(line)
+        return header + "\n".join(product_lines)
+
+# ==============================================================================
+# INICIALIZAÇÃO DO SERVIDOR FLASK
+# ==============================================================================
+app = Flask(__name__)
+zafira = ZafiraCore()
+WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN")
+
+# ==============================================================================
+# ROTA DE TESTE PARA DESCOBRIR O IP DE SAÍDA
+# ==============================================================================
+@app.route('/meu-ip', methods=['GET'])
+def get_my_ip():
+    try:
+        response = requests.get('https://ifconfig.me/ip', timeout=10 )
+        ip_address = response.text.strip()
+        logger.info(f"IP de saída detectado: {ip_address}")
+        return f"<h1>Meu endereço de IP de saída é:</h1><pre>{ip_address}</pre>", 200
+    except requests.RequestException as e:
+        logger.error(f"Erro ao tentar obter o IP: {e}")
+        return "Erro ao obter o IP.", 500
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    return "OK", 200
+
+@app.route('/webhook', methods=['GET', 'POST'])
+def webhook():
+    if request.method == 'GET':
+        if request.args.get('hub.mode') == 'subscribe' and request.args.get('hub.verify_token') == WHATSAPP_VERIFY_TOKEN:
+            return request.args.get('hub.challenge'), 200
+        return "Forbidden", 403
+    if request.method == 'POST':
+        data = request.get_json()
+        logger.info(f"Webhook recebido: {json.dumps(data, indent=2)}")
+        try:
+            message_data = data['entry'][0]['changes'][0]['value']['messages'][0]
+            sender_id = message_data['from']
+            message_text = message_data['text']['body']
+            zafira.process_message(sender_id, message_text)
+        except (IndexError, KeyError):
+            logger.info("Notificação de webhook ignorada (não é uma mensagem de texto).")
+        return jsonify({"status": "ok"}), 200
