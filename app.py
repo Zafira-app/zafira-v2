@@ -1,4 +1,4 @@
-# app.py - VERSÃO FINAL E COMPLETA (Assinatura Corrigida)
+# app.py - VERSÃO FINAL E COMPLETA (Nova Lógica de Assinatura)
 
 import os
 import json
@@ -49,7 +49,7 @@ class WhatsAppClient:
             return False
 
 # ==============================================================================
-# CLASSE DO CLIENTE ALIEXPRESS (COM A CORREÇÃO)
+# CLASSE DO CLIENTE ALIEXPRESS (COM A NOVA CORREÇÃO)
 # ==============================================================================
 class AliExpressClient:
     def __init__(self):
@@ -60,17 +60,18 @@ class AliExpressClient:
         if not all([self.app_key, self.app_secret, self.tracking_id]):
             logger.error("Credenciais críticas do AliExpress não configuradas!")
         else:
-            logger.info("Cliente AliExpress (API Affiliate com Assinatura Corrigida) inicializado.")
+            logger.info("Cliente AliExpress (API Affiliate com Nova Assinatura) inicializado.")
 
     def _generate_signature(self, params: dict) -> str:
         """
         Gera a assinatura SHA256 para a API affiliate.
-        A string é montada com a concatenação de chaves e valores.
+        A string é montada apenas com a concatenação dos VALORES, ordenados pelas chaves.
         """
+        # Ordena os parâmetros pelas chaves
         sorted_params = sorted(params.items())
         
-        # CORREÇÃO FINAL: Monta a string como "app_keyXXXXkeywordsYYYY..."
-        concatenated_string = "".join([f"{k}{v}" for k, v in sorted_params])
+        # NOVA CORREÇÃO: Monta a string apenas com os valores dos parâmetros, em ordem
+        concatenated_string = "".join([str(v) for k, v in sorted_params])
         
         # A fórmula de envolver com o secret continua a mesma
         string_to_sign = self.app_secret + concatenated_string + self.app_secret
