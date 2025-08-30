@@ -1,4 +1,4 @@
-# app.py - VERSÃO FINAL E VITORIOSA
+# app.py - VERSÃO FINAL E DEFINITIVA (Com a correção do API Explorer)
 
 import os
 import json
@@ -6,6 +6,7 @@ import logging
 import re
 import requests
 import hashlib
+import hmac
 import time
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
@@ -49,7 +50,7 @@ class WhatsAppClient:
             return False
 
 # ==============================================================================
-# CLASSE DO CLIENTE ALIEXPRESS
+# CLASSE DO CLIENTE ALIEXPRESS (COM A CORREÇÃO FINAL)
 # ==============================================================================
 class AliExpressClient:
     def __init__(self):
@@ -60,27 +61,35 @@ class AliExpressClient:
         if not all([self.app_key, self.app_secret, self.tracking_id]):
             logger.error("Credenciais críticas do AliExpress não configuradas!")
         else:
-            logger.info("Cliente AliExpress (API Affiliate com Assinatura Oficial) inicializado.")
+            logger.info("Cliente AliExpress (API Affiliate com Assinatura Corrigida) inicializado.")
 
     def _generate_signature(self, params: dict) -> str:
+        """
+        Gera a assinatura HMAC-SHA256, seguindo o padrão do API Explorer.
+        """
         sorted_params = sorted(params.items())
         concatenated_string = "".join([f"{k}{v}" for k, v in sorted_params])
-        string_to_sign = self.app_secret + concatenated_string
-        signature = hashlib.sha256(string_to_sign.encode('utf-8')).hexdigest().upper()
-        logger.info(f"String para assinar (ocultando secret): app_secret+{concatenated_string}")
-        logger.info(f"Assinatura gerada: {signature}")
+        
+        signature = hmac.new(
+            self.app_secret.encode('utf-8'),
+            concatenated_string.encode('utf-8'),
+            hashlib.sha256
+        ).hexdigest().upper()
+        
+        logger.info(f"String para assinar (HMAC): {concatenated_string}")
+        logger.info(f"Assinatura HMAC gerada: {signature}")
         return signature
 
     def search_products(self, keywords: str, limit: int = 3) -> list | bool:
         params = {
             'app_key': self.app_key,
             'method': 'aliexpress.affiliate.product.query',
-            'sign_method': 'sha256',
+            'sign_method': 'hmac',
             'timestamp': str(int(time.time() * 1000)),
             'keywords': keywords,
             'tracking_id': self.tracking_id,
             'page_size': str(limit),
-            'target_language': 'pt',
+            'target_language': 'pt',  # <-- A CORREÇÃO FINAL ESTÁ AQUI
             'target_currency': 'BRL',
             'ship_to_country': 'BR'
         }
@@ -88,7 +97,7 @@ class AliExpressClient:
         
         try:
             response = requests.post(self.api_url, params=params, timeout=40)
-            logger.info(f"Resposta da API - Status: {response.status_code}, Texto: {response.text[:1000]}") # Log aumentado
+            logger.info(f"Resposta da API - Status: {response.status_code}, Texto: {response.text[:1000]}")
             response.raise_for_status()
             data = response.json()
             if 'error_response' in data:
@@ -96,7 +105,6 @@ class AliExpressClient:
                 logger.error(f"Erro da API AliExpress: Código {error_info.get('code')}, Mensagem: {error_info.get('msg')}")
                 return False
             
-            # A resposta de sucesso está aqui
             result = data.get('aliexpress_affiliate_product_query_response', {}).get('resp_result', {}).get('result', {})
             products = result.get('products', {}).get('product', [])
             return products
@@ -105,7 +113,7 @@ class AliExpressClient:
             return False
 
 # ==============================================================================
-# CLASSE DO NÚCLEO DA ZAFIRA (COM A CORREÇÃO)
+# CLASSE DO NÚCLEO DA ZAFIRA
 # ==============================================================================
 class ZafiraCore:
     def __init__(self):
@@ -147,7 +155,6 @@ class ZafiraCore:
         
         products = self.aliexpress_client.search_products(search_terms)
         
-        # CORREÇÃO FINAL: Verifica se a lista de produtos existe e não está vazia
         if products and isinstance(products, list) and len(products) > 0:
             response_text = self._format_product_response(products, search_terms)
         else:
