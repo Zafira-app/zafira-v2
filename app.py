@@ -1,4 +1,4 @@
-# app.py - VERSÃO FINAL E DEFINITIVA (Assinatura Oficial Corrigida)
+# app.py - VERSÃO FINAL E VITORIOSA
 
 import os
 import json
@@ -49,7 +49,7 @@ class WhatsAppClient:
             return False
 
 # ==============================================================================
-# CLASSE DO CLIENTE ALIEXPRESS (COM A ASSINATURA OFICIAL)
+# CLASSE DO CLIENTE ALIEXPRESS
 # ==============================================================================
 class AliExpressClient:
     def __init__(self):
@@ -63,18 +63,9 @@ class AliExpressClient:
             logger.info("Cliente AliExpress (API Affiliate com Assinatura Oficial) inicializado.")
 
     def _generate_signature(self, params: dict) -> str:
-        """
-        Gera a assinatura SHA256 para a API affiliate, seguindo o padrão oficial.
-        Fórmula: SHA256(AppSecret + ParâmetrosOrdenados)
-        """
         sorted_params = sorted(params.items())
-        
-        # Monta a string como "chave1valor1chave2valor2..."
         concatenated_string = "".join([f"{k}{v}" for k, v in sorted_params])
-        
-        # CORREÇÃO FINAL: O AppSecret é usado apenas no início.
         string_to_sign = self.app_secret + concatenated_string
-        
         signature = hashlib.sha256(string_to_sign.encode('utf-8')).hexdigest().upper()
         logger.info(f"String para assinar (ocultando secret): app_secret+{concatenated_string}")
         logger.info(f"Assinatura gerada: {signature}")
@@ -97,13 +88,15 @@ class AliExpressClient:
         
         try:
             response = requests.post(self.api_url, params=params, timeout=40)
-            logger.info(f"Resposta da API - Status: {response.status_code}, Texto: {response.text[:500]}")
+            logger.info(f"Resposta da API - Status: {response.status_code}, Texto: {response.text[:1000]}") # Log aumentado
             response.raise_for_status()
             data = response.json()
             if 'error_response' in data:
                 error_info = data['error_response']
                 logger.error(f"Erro da API AliExpress: Código {error_info.get('code')}, Mensagem: {error_info.get('msg')}")
                 return False
+            
+            # A resposta de sucesso está aqui
             result = data.get('aliexpress_affiliate_product_query_response', {}).get('resp_result', {}).get('result', {})
             products = result.get('products', {}).get('product', [])
             return products
@@ -112,7 +105,7 @@ class AliExpressClient:
             return False
 
 # ==============================================================================
-# CLASSE DO NÚCLEO DA ZAFIRA
+# CLASSE DO NÚCLEO DA ZAFIRA (COM A CORREÇÃO)
 # ==============================================================================
 class ZafiraCore:
     def __init__(self):
@@ -151,11 +144,15 @@ class ZafiraCore:
         if not search_terms:
             self._handle_fallback(sender_id)
             return
+        
         products = self.aliexpress_client.search_products(search_terms)
-        if products:
+        
+        # CORREÇÃO FINAL: Verifica se a lista de produtos existe e não está vazia
+        if products and isinstance(products, list) and len(products) > 0:
             response_text = self._format_product_response(products, search_terms)
         else:
             response_text = f"Não encontrei produtos para '{search_terms}' no momento 😔. Tente descrever o produto de outra forma!"
+        
         self.whatsapp_client.send_text_message(sender_id, response_text)
 
     def _handle_fallback(self, sender_id: str):
