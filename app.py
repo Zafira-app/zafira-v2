@@ -1,4 +1,4 @@
-# app.py - VERSÃO FINAL E DEFINITIVA (Assinatura Padrão Corrigida)
+# app.py - VERSÃO FINAL E DEFINITIVA (Assinatura Oficial Corrigida)
 
 import os
 import json
@@ -49,7 +49,7 @@ class WhatsAppClient:
             return False
 
 # ==============================================================================
-# CLASSE DO CLIENTE ALIEXPRESS (COM A ASSINATURA CORRETA)
+# CLASSE DO CLIENTE ALIEXPRESS (COM A ASSINATURA OFICIAL)
 # ==============================================================================
 class AliExpressClient:
     def __init__(self):
@@ -60,23 +60,23 @@ class AliExpressClient:
         if not all([self.app_key, self.app_secret, self.tracking_id]):
             logger.error("Credenciais críticas do AliExpress não configuradas!")
         else:
-            logger.info("Cliente AliExpress (API Affiliate com Assinatura Padrão) inicializado.")
+            logger.info("Cliente AliExpress (API Affiliate com Assinatura Oficial) inicializado.")
 
     def _generate_signature(self, params: dict) -> str:
         """
-        Gera a assinatura SHA256 para a API affiliate.
-        A string é montada com a concatenação de chaves e valores.
+        Gera a assinatura SHA256 para a API affiliate, seguindo o padrão oficial.
+        Fórmula: SHA256(AppSecret + ParâmetrosOrdenados)
         """
         sorted_params = sorted(params.items())
         
-        # VOLTANDO À FORMA CORRETA: Monta a string como "chave1valor1chave2valor2..."
+        # Monta a string como "chave1valor1chave2valor2..."
         concatenated_string = "".join([f"{k}{v}" for k, v in sorted_params])
         
-        # A fórmula de envolver com o secret continua a mesma
-        string_to_sign = self.app_secret + concatenated_string + self.app_secret
+        # CORREÇÃO FINAL: O AppSecret é usado apenas no início.
+        string_to_sign = self.app_secret + concatenated_string
         
         signature = hashlib.sha256(string_to_sign.encode('utf-8')).hexdigest().upper()
-        logger.info(f"String para assinar (ocultando secret): app_secret+{concatenated_string}+app_secret")
+        logger.info(f"String para assinar (ocultando secret): app_secret+{concatenated_string}")
         logger.info(f"Assinatura gerada: {signature}")
         return signature
 
