@@ -1,4 +1,4 @@
-# app.py - VERSÃO FINAL E DEFINITIVA (Lógica do SDK Sample Oficial)
+# app.py - VERSÃO FINAL E VITORIOSA (Com a correção do Timestamp)
 
 import os
 import json
@@ -6,6 +6,7 @@ import logging
 import re
 import requests
 import hashlib
+import hmac
 import time
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
@@ -60,33 +61,32 @@ class AliExpressClient:
         if not all([self.app_key, self.app_secret, self.tracking_id]):
             logger.error("Credenciais críticas do AliExpress não configuradas!")
         else:
-            logger.info("Cliente AliExpress (API Affiliate com Assinatura SDK Sample) inicializado.")
+            logger.info("Cliente AliExpress (API Affiliate com Assinatura HMAC Oficial) inicializado.")
 
     def _generate_signature(self, params: dict) -> str:
         """
-        Gera a assinatura SHA256, seguindo o padrão do SDK Sample.
-        Fórmula: SHA256(AppKey + ParâmetrosOrdenados)
+        Gera a assinatura HMAC-SHA256, seguindo o padrão oficial.
         """
-        # Adiciona o app_key aos parâmetros para o cálculo
-        params_to_sign = params.copy()
-        params_to_sign['app_key'] = self.app_key
-        
-        sorted_params = sorted(params_to_sign.items())
-        
-        # Monta a string como "chave1valor1chave2valor2..."
+        sorted_params = sorted(params.items())
         concatenated_string = "".join([f"{k}{v}" for k, v in sorted_params])
         
-        # CORREÇÃO FINAL: Usa SHA256 sem o segredo.
-        signature = hashlib.sha256(concatenated_string.encode('utf-8')).hexdigest().upper()
+        signature = hmac.new(
+            self.app_secret.encode('utf-8'),
+            concatenated_string.encode('utf-8'),
+            hashlib.sha256
+        ).hexdigest().upper()
         
-        logger.info(f"String para assinar (SDK Sample): {concatenated_string}")
-        logger.info(f"Assinatura gerada: {signature}")
+        logger.info(f"String para assinar (HMAC): {concatenated_string}")
+        logger.info(f"Assinatura HMAC gerada: {signature}")
         return signature
 
     def search_products(self, keywords: str, limit: int = 3) -> list | bool:
-        # Parâmetros SEM app_key e SEM app_signature
+        # CORREÇÃO FINAL: O timestamp é incluído aqui, antes de gerar a assinatura.
         params = {
+            'app_key': self.app_key,
             'method': 'aliexpress.affiliate.product.query',
+            'sign_method': 'hmac',
+            'timestamp': str(int(time.time() * 1000)),
             'keywords': keywords,
             'tracking_id': self.tracking_id,
             'page_size': str(limit),
@@ -95,13 +95,11 @@ class AliExpressClient:
             'ship_to_country': 'BR'
         }
         
-        # Adiciona o app_key e o app_signature à requisição final
-        final_params = params.copy()
-        final_params['app_key'] = self.app_key
-        final_params['app_signature'] = self._generate_signature(params) # Assinatura é calculada sobre os parâmetros originais
+        # A assinatura é calculada sobre TODOS os parâmetros, incluindo o timestamp.
+        params['sign'] = self._generate_signature(params)
         
         try:
-            response = requests.post(self.api_url, params=final_params, timeout=40)
+            response = requests.post(self.api_url, params=params, timeout=40)
             logger.info(f"Resposta da API - Status: {response.status_code}, Texto: {response.text[:1000]}")
             response.raise_for_status()
             data = response.json()
@@ -110,8 +108,8 @@ class AliExpressClient:
                 logger.error(f"Erro da API AliExpress: Código {error_info.get('code')}, Mensagem: {error_info.get('msg')}")
                 return False
             
-            result = data.get('aliexpress_affiliate_product_query_response', {}).get('result', {})
-            products = result.get('products', [])
+            result = data.get('aliexpress_affiliate_product_query_response', {}).get('resp_result', {}).get('result', {})
+            products = result.get('products', {}).get('product', [])
             return products
         except Exception as e:
             logger.error(f"Exceção na busca de produtos: {e}", exc_info=True)
