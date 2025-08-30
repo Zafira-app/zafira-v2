@@ -1,4 +1,4 @@
-# app.py - VERSÃO FINAL E COMPLETA (Nova Lógica de Assinatura)
+# app.py - VERSÃO FINAL E DEFINITIVA (Assinatura Padrão Corrigida)
 
 import os
 import json
@@ -49,7 +49,7 @@ class WhatsAppClient:
             return False
 
 # ==============================================================================
-# CLASSE DO CLIENTE ALIEXPRESS (COM A NOVA CORREÇÃO)
+# CLASSE DO CLIENTE ALIEXPRESS (COM A ASSINATURA CORRETA)
 # ==============================================================================
 class AliExpressClient:
     def __init__(self):
@@ -60,18 +60,17 @@ class AliExpressClient:
         if not all([self.app_key, self.app_secret, self.tracking_id]):
             logger.error("Credenciais críticas do AliExpress não configuradas!")
         else:
-            logger.info("Cliente AliExpress (API Affiliate com Nova Assinatura) inicializado.")
+            logger.info("Cliente AliExpress (API Affiliate com Assinatura Padrão) inicializado.")
 
     def _generate_signature(self, params: dict) -> str:
         """
         Gera a assinatura SHA256 para a API affiliate.
-        A string é montada apenas com a concatenação dos VALORES, ordenados pelas chaves.
+        A string é montada com a concatenação de chaves e valores.
         """
-        # Ordena os parâmetros pelas chaves
         sorted_params = sorted(params.items())
         
-        # NOVA CORREÇÃO: Monta a string apenas com os valores dos parâmetros, em ordem
-        concatenated_string = "".join([str(v) for k, v in sorted_params])
+        # VOLTANDO À FORMA CORRETA: Monta a string como "chave1valor1chave2valor2..."
+        concatenated_string = "".join([f"{k}{v}" for k, v in sorted_params])
         
         # A fórmula de envolver com o secret continua a mesma
         string_to_sign = self.app_secret + concatenated_string + self.app_secret
@@ -188,15 +187,6 @@ class ZafiraCore:
 app = Flask(__name__)
 zafira = ZafiraCore()
 WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN")
-
-# Rota de teste para descobrir o IP (pode ser removida depois)
-@app.route('/meu-ip', methods=['GET'])
-def get_my_ip():
-    try:
-        response = requests.get('https://ifconfig.me/ip', timeout=10 )
-        return f"<h1>Meu endereço de IP de saída é:</h1><pre>{response.text.strip()}</pre>", 200
-    except requests.RequestException as e:
-        return f"Erro ao obter o IP: {e}", 500
 
 @app.route('/health', methods=['GET'])
 def health_check():
