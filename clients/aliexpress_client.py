@@ -4,6 +4,7 @@ import logging
 import re
 import time
 import hashlib
+import random
 import requests
 from urllib.parse import quote_plus
 
@@ -14,7 +15,6 @@ from dotenv import load_dotenv
 # CARREGA VARIÁVEIS DE AMBIENTE E CONFIGURA LOG
 # ==============================================================================
 load_dotenv()
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s"
@@ -26,8 +26,8 @@ logger = logging.getLogger(__name__)
 # ==============================================================================
 class WhatsAppClient:
     def __init__(self):
-        self.api_url = "https://graph.facebook.com/v20.0/"
-        self.token = os.getenv("WHATSAPP_TOKEN", "")
+        self.api_url         = "https://graph.facebook.com/v20.0/"
+        self.token           = os.getenv("WHATSAPP_TOKEN", "")
         self.phone_number_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")
         if not (self.token and self.phone_number_id):
             logger.error("Credenciais do WhatsApp não configuradas!")
@@ -56,7 +56,7 @@ class WhatsAppClient:
             return False
 
 # ==============================================================================
-# CLIENTE ALIEXPRESS (Affiliate API / MD5)
+# CLIENTE ALIEXPRESS (Affiliate API / MD5 com page_no randômico)
 # ==============================================================================
 class AliExpressClient:
     def __init__(self):
@@ -74,21 +74,20 @@ class AliExpressClient:
         """
         MD5(app_secret + concat(chave+valor URL-encoded ordenados) + app_secret).upper()
         """
-        # Ordena parâmetros por chave
-        items = sorted(params.items())
-        # URL-encode nos valores
+        items   = sorted(params.items())
         encoded = [(k, quote_plus(str(v))) for k, v in items]
-        # Concatena tudo
-        concat = "".join(f"{k}{v}" for k, v in encoded)
-        # Adiciona secret antes e depois da concatenação
-        raw = f"{self.app_secret}{concat}{self.app_secret}".encode("utf-8")
+        concat  = "".join(f"{k}{v}" for k, v in encoded)
+        raw     = f"{self.app_secret}{concat}{self.app_secret}".encode("utf-8")
         return hashlib.md5(raw).hexdigest().upper()
 
     def search_products(self, keywords: str, limit: int = 3) -> dict:
         """
-        Chama aliexpress.affiliate.product.query e retorna o JSON de resposta.
+        Chama aliexpress.affiliate.product.query e retorna o JSON de resposta,
+        variando a página com page_no randômico para diversificar resultados.
         """
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
+        page_no   = random.randint(1, 5)
+
         params = {
             "app_key":          self.app_key,
             "method":           "aliexpress.affiliate.product.query",
@@ -97,13 +96,13 @@ class AliExpressClient:
             "keywords":         keywords,
             "tracking_id":      self.tracking_id,
             "page_size":        str(limit),
+            "page_no":          str(page_no),
             "target_language":  "pt",
             "target_currency":  "BRL",
             "ship_to_country":  "BR"
         }
         params["sign"] = self._generate_signature(params)
 
-        # Para debug mínimo, mostra URL e status
         prepared = requests.Request("GET", self.api_url, params=params).prepare()
         logger.info("AliExpress QUERY URL: %s", prepared.url)
 
@@ -122,7 +121,7 @@ class AliExpressClient:
 # ==============================================================================
 class ZafiraCore:
     def __init__(self):
-        self.whatsapp = WhatsAppClient()
+        self.whatsapp   = WhatsAppClient()
         self.aliexpress = AliExpressClient()
         logger.info("Zafira Core inicializada.")
 
@@ -138,7 +137,7 @@ class ZafiraCore:
 
     def _detect_intent(self, msg: str) -> str:
         m = msg.lower()
-        if any(k in m for k in ["quero", "procuro", "comprar", "fone", "celular", "smartwatch"]):
+        if any(k in m for k in ["quero", "procuro", "comprar", "fone", "celular", "smartwatch", "tênis", "tenis"]):
             return "produto"
         if any(k in m for k in ["oi", "olá", "ola", "e aí"]):
             return "saudacao"
@@ -150,12 +149,13 @@ class ZafiraCore:
 
     def _handle_product(self, sender_id: str, message: str):
         clean = re.sub(r"[^\w\s]", "", message.lower())
-        stop = {"um", "uma", "o", "a", "de", "do", "da", "para", "com", "reais"}
+        stop = {"um", "uma", "o", "a", "de", "do", "da", "para", "com", 
+                "reais", "quero", "procuro"}
         terms = " ".join(w for w in clean.split() if w not in stop)
         if not terms:
             return self._handle_fallback(sender_id)
 
-        data = self.aliexpress.search_products(terms, limit=3)
+        data  = self.aliexpress.search_products(terms, limit=5)
         reply = self._format_response(data, terms)
         self.whatsapp.send_text_message(sender_id, reply)
 
