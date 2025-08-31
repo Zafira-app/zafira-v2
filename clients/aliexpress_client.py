@@ -9,62 +9,69 @@ logger = logging.getLogger(__name__)
 
 class AliExpressClient:
     """
-    Cliente para aliexpress.affiliate.product.query usando sign_method=md5,
-    com valores URL-encoded no cálculo da assinatura.
+    Cliente para chamar aliexpress.affiliate.product.query (Affiliate API),
+    com debug de variáveis e assinatura MD5.
     """
 
     def __init__(self):
-        self.api_url = os.getenv("AE_PROXY_URL", "https://api-sg.aliexpress.com/sync")
-        self.app_key = os.getenv("ALIEXPRESS_APP_KEY", "")
-        self.app_secret = os.getenv("ALIEXPRESS_APP_SECRET", "")
+        # Lê as variáveis de ambiente
+        self.app_key     = os.getenv("ALIEXPRESS_APP_KEY", "")
+        self.app_secret  = os.getenv("ALIEXPRESS_APP_SECRET", "")
         self.tracking_id = os.getenv("ALIEXPRESS_TRACKING_ID", "")
+        self.api_url     = os.getenv("AE_PROXY_URL", "https://api-sg.aliexpress.com/sync")
+
+        # DEBUG: mostra partes do key e secret para confirmação
+        masked_key    = f"{self.app_key[:3]}…{self.app_key[-3:]}"
+        masked_secret = f"{self.app_secret[:3]}…{self.app_secret[-3:]}"
+        logger.info("DEBUG AliExpressKey: %s, Secret: %s", masked_key, masked_secret)
 
         if not (self.app_key and self.app_secret and self.tracking_id):
             logger.error("Credenciais do AliExpress não configuradas!")
         else:
-            logger.info("AliExpressClient (Affiliate MD5) inicializado.")
+            logger.info("AliExpressClient inicializado.")
 
     def _generate_signature(self, params: dict) -> str:
         """
-        Faz MD5(app_secret + concat_por_nome_valor + app_secret), onde
-        cada valor é URL-encoded (quote_plus) para corresponder à query real.
+        MD5(app_secret + concat(chave+valor ordenados, URL-encoded) + app_secret).upper()
         """
-        # 1) Ordena por chave
+        # 1) Ordena params por chave
         items = sorted(params.items())
-        # 2) URL-encode no valor
+        # 2) Aplica URL-encoding no valor para casar com o query string real
         encoded = [(k, quote_plus(str(v))) for k, v in items]
-        # 3) Monta string concatenada
+        # 3) Concatena tudo
         concat = "".join(f"{k}{v}" for k, v in encoded)
         # 4) Adiciona secret antes e depois
         raw = f"{self.app_secret}{concat}{self.app_secret}".encode("utf-8")
-        sig = hashlib.md5(raw).hexdigest().upper()
+        signature = hashlib.md5(raw).hexdigest().upper()
 
-        logger.debug("String para MD5: %s", raw)
-        logger.debug("MD5 signature: %s", sig)
-        return sig
+        # DEBUG: mostra a string e a assinatura gerada
+        logger.info("String para MD5: %s", raw)
+        logger.info("MD5 gerado: %s", signature)
+
+        return signature
 
     def search_products(self, keywords: str, limit: int = 3) -> dict:
         """
-        Chama aliexpress.affiliate.product.query e devolve o JSON da resposta.
+        Executa aliexpress.affiliate.product.query e retorna o JSON de resposta.
         """
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
         params = {
-            "app_key":    self.app_key,
-            "method":     "aliexpress.affiliate.product.query",
-            "sign_method":"md5",
-            "timestamp":  timestamp,
-            "keywords":   keywords,
-            "tracking_id":self.tracking_id,
-            "page_size":  str(limit),
-            "target_language":"pt",
-            "target_currency":"BRL",
-            "ship_to_country":"BR"
+            "app_key":         self.app_key,
+            "method":          "aliexpress.affiliate.product.query",
+            "sign_method":     "md5",
+            "timestamp":       timestamp,
+            "keywords":        keywords,
+            "tracking_id":     self.tracking_id,
+            "page_size":       str(limit),
+            "target_language": "pt",
+            "target_currency": "BRL",
+            "ship_to_country": "BR"
         }
 
-        # injeta a assinatura correta
+        # Gera e injeta a assinatura MD5
         params["sign"] = self._generate_signature(params)
 
-        # mostra a URL real para debug
+        # DEBUG: mostra a URL completa que será chamada
         prepared = requests.Request("GET", self.api_url, params=params).prepare()
         logger.info("AliExpress QUERY URL: %s", prepared.url)
 
