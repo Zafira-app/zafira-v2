@@ -1,83 +1,73 @@
-# aliexpress_client.py - VERSÃO FINAL BASEADA NA DOCUMENTAÇÃO DA DISTRIBUTION API
-
-import requests
-import hashlib
-import time
-import logging
 import os
-from urllib.parse import urlencode
+import time
+import hashlib
+import logging
+import requests
 
 logger = logging.getLogger(__name__)
 
 class AliExpressClient:
     """
-    Cliente para interagir com a AliExpress Distribution Data API,
-    seguindo a documentação oficial encontrada (NodeId=27493).
+    Cliente para chamar aliexpress.affiliate.product.query (Affiliate API),
+    usando assinatura MD5 e timestamp UTC no formato correto.
     """
-    def __init__(self):
-        # Usaremos o proxy com IP estático para evitar o erro AppWhiteIpLimit
-        self.api_url = "https://zafira-proxy.fly.dev/sync"
-        self.app_key = os.getenv("ALIEXPRESS_APP_KEY" )
-        self.app_secret = os.getenv("ALIEXPRESS_APP_SECRET") 
-        self.tracking_id = os.getenv("ALIEXPRESS_TRACKING_ID")
 
-        if not all([self.app_key, self.app_secret, self.tracking_id]):
-            logger.error("Credenciais críticas do AliExpress não configuradas!")
+    def __init__(self):
+        # Se você usa proxy para escapar do AppWhiteIpLimit, mantenha essa URL.
+        # Caso contrário, troque para "https://api-sg.aliexpress.com/sync"
+        self.api_url = os.getenv("AE_PROXY_URL", "https://api-sg.aliexpress.com/sync")
+        self.app_key = os.getenv("ALIEXPRESS_APP_KEY", "")
+        self.app_secret = os.getenv("ALIEXPRESS_APP_SECRET", "")
+        self.tracking_id = os.getenv("ALIEXPRESS_TRACKING_ID", "")
+
+        if not (self.app_key and self.app_secret and self.tracking_id):
+            logger.error("Credenciais do AliExpress não configuradas!")
         else:
-            logger.info("Cliente AliExpress (Distribution API) inicializado.")
+            logger.info("AliExpressClient (Affiliate API / MD5) inicializado.")
 
     def _generate_signature(self, params: dict) -> str:
         """
-        Gera a assinatura SHA256 conforme a documentação da Distribution API:
-        SHA256(app_key + sorted_param_string)
+        MD5(app_secret + concat(chave+valor ordenados) + app_secret).upper()
         """
-        sorted_params = sorted(params.items())
-        concatenated_string = "".join([f"{k}{v}" for k, v in sorted_params])
-        string_to_sign = self.app_key + concatenated_string
-        
-        signature = hashlib.sha256(string_to_sign.encode('utf-8')).hexdigest().upper()
-        logger.info(f"String para assinar: {string_to_sign}")
-        logger.info(f"Assinatura gerada: {signature}")
-        return signature
+        sorted_items = sorted(params.items())
+        concat = "".join(f"{k}{v}" for k, v in sorted_items)
+        raw = f"{self.app_secret}{concat}{self.app_secret}".encode("utf-8")
+        sign = hashlib.md5(raw).hexdigest().upper()
+        logger.debug("MD5 raw string: %s", raw)
+        logger.debug("MD5 signature: %s", sign)
+        return sign
 
-    def search_products(self, keywords: str, limit: int = 3) -> list | bool:
-        """Busca produtos usando o método aliexpress.distribution.product.query."""
-        
+    def search_products(self, keywords: str, limit: int = 3) -> dict:
+        """
+        Chama aliexpress.affiliate.product.query e retorna o dict da resposta JSON.
+        """
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
         params = {
-            'app_key': self.app_key,
-            'method': 'aliexpress.distribution.product.query',
-            'sign_method': 'sha256',
-            'timestamp': str(int(time.time() * 1000)),
-            'keywords': keywords,
-            'tracking_id': self.tracking_id,
-            'page_size': str(limit),
-            'page_no': '1',
-            'fields': 'product_id,product_title,product_main_image_url,target_sale_price,discount,evaluate_rate,target_sale_price_currency,promotion_link'
+            "app_key": self.app_key,
+            "method": "aliexpress.affiliate.product.query",
+            "sign_method": "md5",
+            "timestamp": timestamp,
+            "keywords": keywords,
+            "tracking_id": self.tracking_id,
+            "page_size": str(limit),
+            "target_language": "pt",
+            "target_currency": "BRL",
+            "ship_to_country": "BR"
         }
 
-        params['app_signature'] = self._generate_signature(params)
-        
-        full_url = f"{self.api_url}?{urlencode(params)}"
-        logger.info(f"Executando requisição para a URL: {full_url}")
+        # Assinatura MD5
+        params["sign"] = self._generate_signature(params)
+
+        # Log de diagnóstico
+        prepared = requests.Request("GET", self.api_url, params=params).prepare()
+        logger.info("AliExpress QUERY URL: %s", prepared.url)
 
         try:
-            response = requests.post(self.api_url, params=params, timeout=40)
-            data = response.json()
-            logger.info(f"Resposta completa da API AliExpress: {data}")
-
-            if 'error_response' in data:
-                error_info = data['error_response']
-                logger.error(f"Erro da API AliExpress: Código {error_info.get('code')}, Mensagem: {error_info.get('msg')}")
-                return False
-
-            result = data.get('aliexpress_distribution_product_query_response', {}).get('result', {})
-            products = result.get('products', [])
-            
-            if not products:
-                 logger.warning(f"A busca foi bem-sucedida, mas nenhum produto foi retornado para '{keywords}'.")
-            
-            return products
-
+            resp = requests.get(self.api_url, params=params, timeout=40)
+            logger.info("AliExpress STATUS: %s", resp.status_code)
+            logger.info("AliExpress BODY: %s", resp.text[:500])
+            resp.raise_for_status()
+            return resp.json()
         except Exception as e:
-            logger.error(f"Exceção na busca de produtos: {e}", exc_info=True)
-            return False
+            logger.error("Erro na API AliExpress: %s", e, exc_info=True)
+            return {"error": str(e)}
