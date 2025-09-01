@@ -1,21 +1,37 @@
-# zafira_core.py - VERSÃO 4.0 - INTEGRANDO CREWAI NA ARQUITETURA EXISTENTE
+# zafira_core.py - VERSÃO 4.1 - REUTILIZANDO SUA ESTRUTURA EXISTENTE
 
 import os
 import json
 import logging
-from crewai import Agent, Task, Crew, Process
+from crewai import Agent, Task, Crew, Process, BaseTool
 from pydantic import BaseModel
 from langchain_groq import ChatGroq
 
-# Importa as ferramentas e clientes que já tínhamos
+# Importa os clientes que VOCÊ criou, que é a forma correta.
 from clients.whatsapp_client import WhatsAppClient
-from tools.aliexpress_tool import AliExpressSearchTool
+from clients.aliexpress_client import AliExpressClient
 
 # Configuração do Logging
 logger = logging.getLogger(__name__)
 
 # ==============================================================================
-# MODELO DE DADOS PARA A SAÍDA DA ANÁLISE (USADO PELO CREWAI)
+# FERRAMENTA-ADAPTADOR PARA O SEU ALIEXPRESSCLIENT
+# Isso permite que o CrewAI use seu código existente sem modificá-lo.
+# ==============================================================================
+class AliExpressToolAdapter(BaseTool):
+    name: str = "Ferramenta de Busca de Produtos no AliExpress"
+    description: str = "Use esta ferramenta para buscar produtos no AliExpress com base em palavras-chave."
+    aliexpress_client: AliExpressClient
+
+    def _run(self, keywords: str) -> str:
+        logger.info(f"Adaptador chamando AliExpressClient com keywords: '{keywords}'")
+        products = self.aliexpress_client.search_products(keywords)
+        if not products or not isinstance(products, list):
+            return "Nenhum produto encontrado."
+        return json.dumps(products)
+
+# ==============================================================================
+# MODELO DE DADOS PARA A SAÍDA DA ANÁLISE
 # ==============================================================================
 class AnalysisModel(BaseModel):
     intent: str
@@ -23,12 +39,13 @@ class AnalysisModel(BaseModel):
     empathetic_reply: str
 
 # ==============================================================================
-# ZAFIRA CORE - A CLASSE PRINCIPAL (ATUALIZADA)
+# ZAFIRA CORE - A CLASSE PRINCIPAL (ATUALIZADA E CORRETA)
 # ==============================================================================
 class ZafiraCore:
     def __init__(self):
         logger.info("Inicializando o Zafira Core...")
         self.whatsapp_client = WhatsAppClient()
+        self.aliexpress_client = AliExpressClient() # <-- Seu cliente existente
         self.llm = self._initialize_llm()
         self.crew = self._initialize_crew() if self.llm else None
         
@@ -53,8 +70,9 @@ class ZafiraCore:
             return None
 
     def _initialize_crew(self):
-        """Inicializa os agentes e a tripulação (crew) para substituir a lógica antiga."""
-        aliexpress_tool = AliExpressSearchTool()
+        """Inicializa os agentes e a tripulação (crew) usando o cliente existente."""
+        # Cria a ferramenta adaptadora, passando seu cliente já inicializado.
+        aliexpress_tool = AliExpressToolAdapter(aliexpress_client=self.aliexpress_client)
 
         # --- AGENTES ---
         request_analyzer = Agent(role='Analisador de Pedidos', goal='Analisar a mensagem do cliente, entender a intenção e extrair os termos de busca.', backstory='Você é um especialista em atendimento que entende a necessidade real do cliente.', llm=self.llm, allow_delegation=False, verbose=True)
@@ -69,10 +87,7 @@ class ZafiraCore:
         return Crew(agents=[request_analyzer, product_hunter, response_curator], tasks=[analysis_task, product_task, curation_task], process=Process.sequential, verbose=2)
 
     def process_message(self, sender_id: str, user_message: str):
-        """
-        Processa a mensagem recebida do usuário usando o CrewAI.
-        A lógica de if/else foi substituída pela orquestração dos agentes.
-        """
+        """Processa a mensagem recebida do usuário usando o CrewAI."""
         logger.info(f"Zafira Core processando mensagem de {sender_id} com CrewAI: '{user_message}'")
         
         if not self.crew:
