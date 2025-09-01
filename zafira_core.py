@@ -1,9 +1,11 @@
-# zafira_core.py - VERSÃO 4.1 - REUTILIZANDO SUA ESTRUTURA EXISTENTE
+# zafira_core.py - VERSÃO 4.2 - CORRIGINDO O ERRO DE IMPORTAÇÃO
 
 import os
 import json
 import logging
-from crewai import Agent, Task, Crew, Process, BaseTool
+from crewai import Agent, Task, Crew, Process
+# A CORREÇÃO ESTÁ AQUI: BaseTool vem de 'crewai_tools'
+from crewai_tools import BaseTool
 from pydantic import BaseModel
 from langchain_groq import ChatGroq
 
@@ -16,7 +18,6 @@ logger = logging.getLogger(__name__)
 
 # ==============================================================================
 # FERRAMENTA-ADAPTADOR PARA O SEU ALIEXPRESSCLIENT
-# Isso permite que o CrewAI use seu código existente sem modificá-lo.
 # ==============================================================================
 class AliExpressToolAdapter(BaseTool):
     name: str = "Ferramenta de Busca de Produtos no AliExpress"
@@ -45,7 +46,7 @@ class ZafiraCore:
     def __init__(self):
         logger.info("Inicializando o Zafira Core...")
         self.whatsapp_client = WhatsAppClient()
-        self.aliexpress_client = AliExpressClient() # <-- Seu cliente existente
+        self.aliexpress_client = AliExpressClient()
         self.llm = self._initialize_llm()
         self.crew = self._initialize_crew() if self.llm else None
         
@@ -71,7 +72,6 @@ class ZafiraCore:
 
     def _initialize_crew(self):
         """Inicializa os agentes e a tripulação (crew) usando o cliente existente."""
-        # Cria a ferramenta adaptadora, passando seu cliente já inicializado.
         aliexpress_tool = AliExpressToolAdapter(aliexpress_client=self.aliexpress_client)
 
         # --- AGENTES ---
@@ -103,4 +103,3 @@ class ZafiraCore:
         except Exception as e:
             logger.error(f"Erro catastrófico ao executar a tripulação (crew): {e}", exc_info=True)
             self.whatsapp_client.send_text_message(sender_id, "Uau, essa pergunta deu um nó na minha cabeça! Tive um erro aqui. Você pode tentar perguntar de outra forma?")
-
