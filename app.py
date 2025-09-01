@@ -1,4 +1,4 @@
-# app.py - VERSÃO 3.1 - CORREÇÃO DE VALIDAÇÃO PYDANTIC
+# app.py - VERSÃO 3.2 - USANDO O MODELO DE PRODUÇÃO ATIVO DA GROQ
 
 import os
 import json
@@ -12,11 +12,10 @@ from urllib.parse import urlencode
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 
-# Novas importações
 from crewai import Agent, Task, Crew, Process
 from crewai_tools import BaseTool
 from langchain_groq import ChatGroq
-from pydantic import BaseModel # <-- IMPORTANTE: Importa o BaseModel
+from pydantic import BaseModel
 
 # ==============================================================================
 # CARREGA VARIÁVEIS DE AMBIENTE E CONFIGURA LOG
@@ -26,7 +25,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 # ==============================================================================
-# MODELO DE DADOS PARA A SAÍDA JSON (A CORREÇÃO PRINCIPAL)
+# MODELO DE DADOS PARA A SAÍDA JSON
 # ==============================================================================
 class AnalysisModel(BaseModel):
     intent: str
@@ -43,7 +42,6 @@ class AliExpressSearchTool(BaseTool):
     def _run(self, keywords: str) -> str:
         logger.info(f"AliExpressSearchTool: Buscando por '{keywords}'")
         try:
-            # (O código interno da ferramenta permanece o mesmo)
             app_key = os.getenv("ALIEXPRESS_APP_KEY")
             app_secret = os.getenv("ALIEXPRESS_APP_SECRET")
             tracking_id = os.getenv("ALIEXPRESS_TRACKING_ID")
@@ -85,8 +83,14 @@ aliexpress_tool = AliExpressSearchTool()
 # CONFIGURAÇÃO DO LLM (GROQ)
 # ==============================================================================
 try:
-    llm = ChatGroq(api_key=os.getenv("GROQ_API_KEY"), model_name="llama3-70b-8192")
-    logger.info("LLM da Groq inicializado com sucesso.")
+    # ==================================================================
+    # A CORREÇÃO FINAL E DEFINITIVA: Usando um modelo de produção ATIVO.
+    # ==================================================================
+    llm = ChatGroq(
+        api_key=os.getenv("GROQ_API_KEY"),
+        model_name="llama3-8b-8192" 
+    )
+    logger.info("LLM da Groq inicializado com sucesso com o modelo llama3-8b-8192.")
 except Exception as e:
     logger.error(f"Falha ao inicializar o LLM da Groq: {e}")
     llm = None
@@ -102,9 +106,6 @@ analysis_task = Task(
     description='Analise a mensagem do cliente: "{message}". Classifique a intenção como "busca_produto" ou "conversa_geral". Se for busca, extraia os termos de busca. Crie uma resposta empática.',
     expected_output='Um objeto JSON seguindo o modelo AnalysisModel.',
     agent=request_analyzer,
-    # ==================================================================
-    # A CORREÇÃO FINAL: Usando output_pydantic com o modelo de dados.
-    # ==================================================================
     output_pydantic=AnalysisModel
 )
 
