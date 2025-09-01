@@ -1,4 +1,4 @@
-# app.py - VERSÃO 3.8 - REMOVENDO IMPORT INCORRETO
+# app.py - VERSÃO 3.9 - ARQUITETURA CORRETA E SIMPLIFICADA
 
 import os
 import json
@@ -15,8 +15,8 @@ from dotenv import load_dotenv
 from crewai import Agent, Task, Crew, Process
 from crewai_tools import BaseTool
 from pydantic import BaseModel
-# CORREÇÃO: A linha "from langchain_groq import ChatGroq" foi REMOVIDA.
-from groq import Groq
+# A FORMA CORRETA DE IMPORTAR
+from langchain_groq import ChatGroq
 
 # ==============================================================================
 # CARREGA VARIÁVEIS DE AMBIENTE E CONFIGURA LOG
@@ -64,28 +64,14 @@ class AliExpressSearchTool(BaseTool):
 aliexpress_tool = AliExpressSearchTool()
 
 # ==============================================================================
-# CONFIGURAÇÃO DO LLM (USANDO A BIBLIOTECA OFICIAL GROQ)
+# CONFIGURAÇÃO DO LLM (GROQ) - DA FORMA CORRETA
 # ==============================================================================
-# O CrewAI usa um wrapper interno para lidar com o LLM, então precisamos de uma classe adaptadora.
-class GroqLLMAdapter:
-    def __init__(self, model_name="llama3-8b-8192"):
-        self.client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-        self.model_name = model_name
-        logger.info(f"Adaptador GroqLLM inicializado para o modelo {self.model_name}")
-
-    def invoke(self, messages, **kwargs):
-        # O CrewAI passa uma lista de BaseMessage, precisamos convertê-las para dicionários
-        formatted_messages = [{"role": msg.role, "content": msg.content} for msg in messages]
-        chat_completion = self.client.chat.completions.create(
-            messages=formatted_messages,
-            model=self.model_name,
-            **kwargs
-        )
-        return chat_completion.choices[0].message.content
-
 try:
-    llm = GroqLLMAdapter()
-    logger.info("LLM da Groq inicializado com sucesso via adaptador.")
+    llm = ChatGroq(
+        api_key=os.getenv("GROQ_API_KEY"),
+        model_name="llama3-8b-8192" # Usando o modelo estável
+    )
+    logger.info("LLM da Groq inicializado com sucesso com o modelo llama3-8b-8192.")
 except Exception as e:
     logger.error(f"Falha ao inicializar o LLM da Groq: {e}")
     llm = None
@@ -105,7 +91,7 @@ analysis_task = Task(
 )
 
 product_task = Task(description='Com base nos termos de busca da análise, use a ferramenta para encontrar os produtos.', expected_output='Uma lista JSON de produtos.', agent=product_hunter, context=[analysis_task])
-curation_task = Task(description='Analise a conversa e a lista de produtos. Selecione os 3 melhores e formate uma resposta final para o cliente. Se nenhum produto foi encontrado, crie uma mensagem simpática informando isso.', expected_output='O texto final da mensagem a ser enviada para o cliente.', agent=response_curator, context=[analysis_task])
+curation_task = Task(description='Analise a conversa e a lista de produtos. Selecione os 3 melhores e formate uma resposta final para o cliente. Se nenhum produto foi encontrado, crie uma mensagem simpática informando isso.', expected_output='O texto final da mensagem a ser enviada para o cliente.', agent=response_curator, context=[analysis_task, product_task])
 
 shopping_crew = Crew(agents=[request_analyzer, product_hunter, response_curator], tasks=[analysis_task, product_task, curation_task], process=Process.sequential, verbose=2)
 
@@ -157,7 +143,7 @@ def webhook():
             logger.info(f"Mensagem de {sender_id}: '{user_message}'")
             
             if not llm:
-                whatsapp_client.send_text_message(sender_id, "Desculpe, meu cérebro (LLM) não está funcionando no momento.")
+                whatsapp_client.send_text_message(sender_id, "Desculpe, meu cérebro (LLM) não está funcionando no momento. Ocorreu um erro na inicialização.")
                 return jsonify({"status": "ok"}), 200
 
             inputs = {'message': user_message}
