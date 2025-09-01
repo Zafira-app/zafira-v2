@@ -1,4 +1,4 @@
-# app.py - VERSÃO 3.7 - USANDO A BIBLIOTECA OFICIAL GROQ
+# app.py - VERSÃO 3.8 - REMOVENDO IMPORT INCORRETO
 
 import os
 import json
@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 from crewai import Agent, Task, Crew, Process
 from crewai_tools import BaseTool
 from pydantic import BaseModel
-# Importações alteradas: Removido langchain_groq, importado o cliente oficial
+# CORREÇÃO: A linha "from langchain_groq import ChatGroq" foi REMOVIDA.
 from groq import Groq
 
 # ==============================================================================
@@ -40,10 +40,8 @@ class AliExpressSearchTool(BaseTool):
     name: str = "Ferramenta de Busca de Produtos no AliExpress"
     description: str = "Use esta ferramenta para buscar produtos no AliExpress com base em palavras-chave."
     def _run(self, keywords: str) -> str:
-        # (Código interno da ferramenta permanece o mesmo)
         logger.info(f"AliExpressSearchTool: Buscando por '{keywords}'")
         try:
-            # ... (código da busca omitido para brevidade, é o mesmo de antes)
             app_key, app_secret, tracking_id = os.getenv("ALIEXPRESS_APP_KEY"), os.getenv("ALIEXPRESS_APP_SECRET"), os.getenv("ALIEXPRESS_TRACKING_ID")
             if not all([app_key, app_secret, tracking_id]): return "Erro: Credenciais do AliExpress não configuradas."
             timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
@@ -68,11 +66,26 @@ aliexpress_tool = AliExpressSearchTool()
 # ==============================================================================
 # CONFIGURAÇÃO DO LLM (USANDO A BIBLIOTECA OFICIAL GROQ)
 # ==============================================================================
-# Esta é a principal correção. Removemos a camada do LangChain e usamos o cliente Groq diretamente.
-# O CrewAI é compatível com esta abordagem.
+# O CrewAI usa um wrapper interno para lidar com o LLM, então precisamos de uma classe adaptadora.
+class GroqLLMAdapter:
+    def __init__(self, model_name="llama3-8b-8192"):
+        self.client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+        self.model_name = model_name
+        logger.info(f"Adaptador GroqLLM inicializado para o modelo {self.model_name}")
+
+    def invoke(self, messages, **kwargs):
+        # O CrewAI passa uma lista de BaseMessage, precisamos convertê-las para dicionários
+        formatted_messages = [{"role": msg.role, "content": msg.content} for msg in messages]
+        chat_completion = self.client.chat.completions.create(
+            messages=formatted_messages,
+            model=self.model_name,
+            **kwargs
+        )
+        return chat_completion.choices[0].message.content
+
 try:
-    llm = Groq(api_key=os.getenv("GROQ_API_KEY"))
-    logger.info("LLM da Groq inicializado com sucesso via biblioteca oficial.")
+    llm = GroqLLMAdapter()
+    logger.info("LLM da Groq inicializado com sucesso via adaptador.")
 except Exception as e:
     logger.error(f"Falha ao inicializar o LLM da Groq: {e}")
     llm = None
@@ -80,13 +93,6 @@ except Exception as e:
 # ==============================================================================
 # DEFINIÇÃO DOS AGENTES E TAREFAS (CREWAI)
 # ==============================================================================
-# Os agentes agora precisam que o modelo seja passado dentro de um dicionário de configuração
-default_llm_config = {
-    "model": "llama3-8b-8192",
-    "temperature": 0.2,
-    "llm": llm
-}
-
 request_analyzer = Agent(role='Analisador de Pedidos', goal='Analisar a mensagem do cliente, entender a intenção e extrair os termos de busca.', backstory='Você é um especialista em atendimento que entende a necessidade real do cliente.', llm=llm, allow_delegation=False, verbose=True)
 product_hunter = Agent(role='Especialista em Buscas no AliExpress', goal='Encontrar os melhores produtos correspondentes aos termos de busca.', backstory='Você é um mestre em usar a API do AliExpress.', llm=llm, tools=[aliexpress_tool], allow_delegation=False, verbose=True)
 response_curator = Agent(role='Curador de Respostas', goal='Selecionar os 3 melhores produtos e formatar uma resposta final amigável.', backstory='Você tem um olho clínico para qualidade e sabe apresentar informações de forma clara.', llm=llm, allow_delegation=False, verbose=True)
@@ -101,21 +107,12 @@ analysis_task = Task(
 product_task = Task(description='Com base nos termos de busca da análise, use a ferramenta para encontrar os produtos.', expected_output='Uma lista JSON de produtos.', agent=product_hunter, context=[analysis_task])
 curation_task = Task(description='Analise a conversa e a lista de produtos. Selecione os 3 melhores e formate uma resposta final para o cliente. Se nenhum produto foi encontrado, crie uma mensagem simpática informando isso.', expected_output='O texto final da mensagem a ser enviada para o cliente.', agent=response_curator, context=[analysis_task])
 
-shopping_crew = Crew(
-    agents=[request_analyzer, product_hunter, response_curator],
-    tasks=[analysis_task, product_task, curation_task],
-    process=Process.sequential,
-    verbose=2,
-    # Passamos a configuração do LLM para a tripulação
-    manager_llm=llm,
-    function_calling_llm=llm
-)
+shopping_crew = Crew(agents=[request_analyzer, product_hunter, response_curator], tasks=[analysis_task, product_task, curation_task], process=Process.sequential, verbose=2)
 
 # ==============================================================================
 # CLIENTE WHATSAPP
 # ==============================================================================
 class WhatsAppClient:
-    # (Código do cliente WhatsApp permanece o mesmo)
     def __init__(self):
         self.api_url = f"https://graph.facebook.com/v20.0/{os.getenv('WHATSAPP_PHONE_NUMBER_ID' )}/messages"
         self.token = os.getenv("WHATSAPP_TOKEN")
@@ -163,13 +160,7 @@ def webhook():
                 whatsapp_client.send_text_message(sender_id, "Desculpe, meu cérebro (LLM) não está funcionando no momento.")
                 return jsonify({"status": "ok"}), 200
 
-            # A forma de iniciar a tripulação é a mesma
             inputs = {'message': user_message}
-            # Definimos o modelo a ser usado aqui, na chamada do kickoff
-            shopping_crew.tasks[0].llm = llm
-            shopping_crew.tasks[1].llm = llm
-            shopping_crew.tasks[2].llm = llm
-            
             result = shopping_crew.kickoff(inputs=inputs)
             
             logger.info("Resultado final da tripulação: %s", result)
