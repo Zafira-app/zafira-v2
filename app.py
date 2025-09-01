@@ -1,4 +1,4 @@
-# app.py - VERSÃO 3.3 - USANDO O MODELO MIXTRAL ESTÁVEL
+# app.py - VERSÃO 3.6 - USANDO O MODELO LLAMA 3 8B ESTÁVEL
 
 import os
 import json
@@ -84,13 +84,13 @@ aliexpress_tool = AliExpressSearchTool()
 # ==============================================================================
 try:
     # ==================================================================
-    # A ÚLTIMA TENTATIVA: Usando o modelo Mixtral, que está ativo.
+    # A CORREÇÃO FINAL: Usando o modelo Llama 3 8B, listado na documentação.
     # ==================================================================
     llm = ChatGroq(
         api_key=os.getenv("GROQ_API_KEY"),
-        model_name="mixtral-8x7b-32768" 
+        model_name="llama3-8b-8192" 
     )
-    logger.info("LLM da Groq inicializado com sucesso com o modelo mixtral-8x7b-32768.")
+    logger.info("LLM da Groq inicializado com sucesso com o modelo llama3-8b-8192.")
 except Exception as e:
     logger.error(f"Falha ao inicializar o LLM da Groq: {e}")
     llm = None
