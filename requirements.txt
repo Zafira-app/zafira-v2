@@ -1,11 +1,8 @@
-# Zafira V3.9 - Dependências Corretas e Estáveis
-
-Flask==2.3.3
+flask==2.3.3
 gunicorn==21.2.0
 requests==2.31.0
 python-dotenv==1.0.0
-
-# Framework de Agentes e LLM (versões compatíveis com Python 3.11)
 crewai==0.28.8
 crewai-tools==0.1.6
 langchain-groq==0.1.3
+pydantic==2.5.0
