@@ -1,4 +1,4 @@
-# app.py - VERSÃO 2.0.4 - REPLICANDO O COMANDO CURL
+# app.py - VERSÃO 2.0.5 - USANDO O MODELO CORRETO E ATUAL DA GROQ
 
 import os
 import json
@@ -9,7 +9,7 @@ import hashlib
 import random
 import requests
 from urllib.parse import urlencode
-import http.client # <-- Usando a biblioteca de baixo nível
+import http.client
 
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
@@ -25,16 +25,19 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ==============================================================================
-# BRAIN AGENT (O CÉREBRO DA ZAFIRA - REESCRITO COM HTTP.CLIENT)
+# BRAIN AGENT (COM O MODELO CORRETO)
 # ==============================================================================
 class BrainAgent:
     def __init__(self):
         self.api_key = os.getenv("GROQ_API_KEY")
-        self.model = "gemma-7b-it" 
+        # ==================================================================
+        # A CORREÇÃO FINAL: Usando o modelo Llama 3, que é o padrão atual.
+        # ==================================================================
+        self.model = "llama3-8b-8192" 
         if not self.api_key:
             logger.error("GROQ_API_KEY não configurada! O cérebro não pode funcionar.")
         else:
-            logger.info("BrainAgent inicializado com o modelo %s e http.client.", self.model )
+            logger.info("BrainAgent inicializado com o modelo CORRETO: %s.", self.model)
 
     def analyze(self, user_message: str) -> dict:
         if not self.api_key:
@@ -64,12 +67,7 @@ class BrainAgent:
             logger.info("Enviando para análise do BrainAgent via http.client: '%s'", user_message )
             
             conn = http.client.HTTPSConnection("api.groq.com" )
-            
-            headers = {
-                'Authorization': f'Bearer {self.api_key}',
-                'Content-Type': 'application/json'
-            }
-            
+            headers = {'Authorization': f'Bearer {self.api_key}', 'Content-Type': 'application/json'}
             body = json.dumps(payload)
             
             conn.request("POST", "/openai/v1/chat/completions", body, headers)
@@ -78,8 +76,9 @@ class BrainAgent:
             data = res.read()
             
             if res.status != 200:
-                logger.error(f"Erro na API da Groq: Status {res.status}. Resposta: {data.decode('utf-8')}")
-                raise http.client.HTTPException(f"Status: {res.status}, Body: {data.decode('utf-8' )}")
+                response_text = data.decode('utf-8')
+                logger.error(f"Erro na API da Groq: Status {res.status}. Resposta: {response_text}")
+                raise http.client.HTTPException(f"Status: {res.status}, Body: {response_text}" )
 
             response_json = json.loads(data.decode("utf-8"))
             
