@@ -1,4 +1,4 @@
-# app.py - VERSÃO 2.0.3 - CORREÇÃO DE COMPATIBILIDADE DA GROQ
+# app.py - VERSÃO 2.0.4 - REPLICANDO O COMANDO CURL
 
 import os
 import json
@@ -9,6 +9,7 @@ import hashlib
 import random
 import requests
 from urllib.parse import urlencode
+import http.client # <-- Usando a biblioteca de baixo nível
 
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
@@ -16,7 +17,7 @@ from dotenv import load_dotenv
 # ==============================================================================
 # CARREGA VARIÁVEIS DE AMBIENTE E CONFIGURA LOG
 # ==============================================================================
-load_dotenv()
+load_dotenv( )
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s"
@@ -24,41 +25,23 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ==============================================================================
-# BRAIN AGENT (O CÉREBRO DA ZAFIRA - POWERED BY GROQ)
+# BRAIN AGENT (O CÉREBRO DA ZAFIRA - REESCRITO COM HTTP.CLIENT)
 # ==============================================================================
 class BrainAgent:
     def __init__(self):
-        self.api_url = "https://api.groq.com/openai/v1/chat/completions"
-        self.api_key = os.getenv("GROQ_API_KEY" )
+        self.api_key = os.getenv("GROQ_API_KEY")
         self.model = "gemma-7b-it" 
         if not self.api_key:
             logger.error("GROQ_API_KEY não configurada! O cérebro não pode funcionar.")
         else:
-            logger.info("BrainAgent inicializado com o modelo %s.", self.model)
+            logger.info("BrainAgent inicializado com o modelo %s e http.client.", self.model )
 
     def analyze(self, user_message: str) -> dict:
         if not self.api_key:
             return {"intent": "error", "empathetic_reply": "Desculpe, estou com um problema na minha conexão cerebral. Tente novamente mais tarde."}
 
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
-        }
-
-        # ==================================================================
-        # ALTERAÇÃO PRINCIPAL 2: Reforçando a instrução no prompt.
-        # ==================================================================
         system_prompt = """
-        Você é o cérebro da Zafira, uma assistente de compras do WhatsApp. Sua única função é analisar a mensagem do usuário e retornar um JSON válido, e nada mais.
-
-        Siga estas regras estritamente:
-        1.  **Analise a intenção (intent)**: "saudacao", "busca_produto", ou "conversa_geral".
-        2.  **Extraia os termos de busca (search_terms)**: O produto principal que o usuário quer.
-        3.  **Extraia os filtros (filters)**: Detalhes como preço, cor, etc.
-        4.  **Crie uma resposta empática (empathetic_reply)**: Uma frase curta e amigável em português.
-
-        Sua resposta DEVE ser um único bloco de código JSON, começando com { e terminando com }. Não inclua texto antes ou depois do JSON.
-
+        Você é o cérebro da Zafira, uma assistente de compras do WhatsApp. Sua única função é analisar a mensagem do usuário e retornar um JSON válido, e nada mais. Sua resposta DEVE ser um único bloco de código JSON, começando com { e terminando com }. Não inclua texto antes ou depois do JSON.
         Exemplo de resposta:
         {
           "intent": "busca_produto",
@@ -74,36 +57,45 @@ class BrainAgent:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message}
             ],
-            "temperature": 0.2, # Reduzimos a "criatividade" para focar no formato JSON
-            # ==================================================================
-            # ALTERAÇÃO PRINCIPAL 1: Removendo o parâmetro "response_format".
-            # ==================================================================
+            "temperature": 0.2,
         }
 
         try:
-            logger.info("Enviando para análise do BrainAgent: '%s'", user_message)
-            response = requests.post(self.api_url, headers=headers, json=payload, timeout=25)
-            response.raise_for_status()
+            logger.info("Enviando para análise do BrainAgent via http.client: '%s'", user_message )
             
-            # Agora, precisamos extrair o JSON da resposta de texto.
-            analysis_str = response.json()["choices"][0]["message"]["content"]
+            conn = http.client.HTTPSConnection("api.groq.com" )
+            
+            headers = {
+                'Authorization': f'Bearer {self.api_key}',
+                'Content-Type': 'application/json'
+            }
+            
+            body = json.dumps(payload)
+            
+            conn.request("POST", "/openai/v1/chat/completions", body, headers)
+            
+            res = conn.getresponse()
+            data = res.read()
+            
+            if res.status != 200:
+                logger.error(f"Erro na API da Groq: Status {res.status}. Resposta: {data.decode('utf-8')}")
+                raise http.client.HTTPException(f"Status: {res.status}, Body: {data.decode('utf-8' )}")
+
+            response_json = json.loads(data.decode("utf-8"))
+            
+            analysis_str = response_json["choices"][0]["message"]["content"]
             logger.info("Análise recebida do BrainAgent: %s", analysis_str)
             
-            # Tentativa de extrair o JSON do texto, caso a IA adicione ```json ... ```
             match = re.search(r'\{.*\}', analysis_str, re.DOTALL)
             if match:
                 json_str = match.group(0)
                 return json.loads(json_str)
             else:
-                # Se não encontrar, tenta decodificar a string inteira
                 return json.loads(analysis_str)
 
-        except requests.RequestException as e:
-            logger.error("Erro na API da Groq: %s. Detalhes: %s", e, e.response.text if e.response else "Sem resposta")
-            return {"intent": "error", "empathetic_reply": "Desculpe, meu cérebro está um pouco lento agora. Poderia repetir, por favor?"}
-        except (json.JSONDecodeError, KeyError, AttributeError) as e:
-            logger.error("Erro ao processar resposta da Groq: %s. Resposta recebida: %s", e, analysis_str)
-            return {"intent": "error", "empathetic_reply": "Tive uma ideia brilhante, mas me perdi no pensamento. Pode me dizer de novo?"}
+        except Exception as e:
+            logger.error("Erro fatal no BrainAgent: %s", e)
+            return {"intent": "error", "empathetic_reply": "Desculpe, meu cérebro teve um curto-circuito. Poderia repetir, por favor?"}
 
 
 # ==============================================================================
