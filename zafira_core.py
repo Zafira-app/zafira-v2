@@ -1,11 +1,10 @@
-# zafira_core.py - VERSÃO 4.3 - A CORREÇÃO FINAL DO PYDANTIC
-
 import os
 import json
 import logging
+
+from pydantic import BaseModel, ConfigDict
 from crewai import Agent, Task, Crew, Process
 from crewai_tools import BaseTool
-from pydantic import BaseModel, ConfigDict # <-- Importa o ConfigDict
 from langchain_groq import ChatGroq
 
 from clients.whatsapp_client import WhatsAppClient
@@ -13,93 +12,140 @@ from clients.aliexpress_client import AliExpressClient
 
 logger = logging.getLogger(__name__)
 
-# ==============================================================================
-# FERRAMENTA-ADAPTADOR PARA O SEU ALIEXPRESSCLIENT
-# ==============================================================================
+# ----------------------------------------------------------------------------
+# 1) ADAPTADOR PARA O ALIEXPRESSCLIENT
+# ----------------------------------------------------------------------------
 class AliExpressToolAdapter(BaseTool):
-    name: str = "Ferramenta de Busca de Produtos no AliExpress"
-    description: str = "Use esta ferramenta para buscar produtos no AliExpress com base em palavras-chave."
+    name: str = "AliExpress Search"
+    description: str = "Busca produtos no AliExpress via API de afiliados."
     aliexpress_client: AliExpressClient
 
-    # ==================================================================
-    # A CORREÇÃO FINAL ESTÁ AQUI
-    # Esta configuração diz ao Pydantic para aceitar tipos de classe
-    # que ele não conhece nativamente, como o nosso AliExpressClient.
-    # ==================================================================
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def _run(self, keywords: str) -> str:
-        logger.info(f"Adaptador chamando AliExpressClient com keywords: '{keywords}'")
-        products = self.aliexpress_client.search_products(keywords)
-        if not products or not isinstance(products, list):
-            return "Nenhum produto encontrado."
+        logger.info(f"[AliExpressTool] Buscando por: '{keywords}'")
+        data = self.aliexpress_client.search_products(keywords)
+        products = (
+            data.get("aliexpress_affiliate_product_query_response", {})
+                .get("resp_result", {})
+                .get("result", {})
+                .get("products", {})
+                .get("product", [])
+        )
+        if not products:
+            return json.dumps([])
         return json.dumps(products)
 
-# ==============================================================================
-# MODELO DE DADOS PARA A SAÍDA DA ANÁLISE
-# ==============================================================================
+# ----------------------------------------------------------------------------
+# 2) MODELO DE SAÍDA DA ANÁLISE
+# ----------------------------------------------------------------------------
 class AnalysisModel(BaseModel):
     intent: str
     search_terms: str | None
     empathetic_reply: str
 
-# ==============================================================================
-# ZAFIRA CORE - A CLASSE PRINCIPAL
-# ==============================================================================
+# ----------------------------------------------------------------------------
+# 3) ZAFIRA CORE COM CREWAI & GROQ
+# ----------------------------------------------------------------------------
 class ZafiraCore:
     def __init__(self):
-        logger.info("Inicializando o Zafira Core...")
-        self.whatsapp_client = WhatsAppClient()
+        logger.info("Inicializando Zafira Core…")
+        self.whatsapp_client   = WhatsAppClient()
         self.aliexpress_client = AliExpressClient()
         self.llm = self._initialize_llm()
         self.crew = self._initialize_crew() if self.llm else None
-        
-        if not self.crew:
-            logger.error("Zafira Core: CÉREBRO (CREWAI) DESATIVADO DEVIDO A FALHA NA INICIALIZAÇÃO DO LLM.")
-        else:
-            logger.info("Zafira Core inicializado com sucesso com CrewAI.")
 
-    def _initialize_llm(self):
+        if not self.crew:
+            logger.error("CrewAI desativado – falha ao iniciar LLM.")
+        else:
+            logger.info("CrewAI iniciado com sucesso.")
+
+    def _initialize_llm(self) -> ChatGroq | None:
+        groq_key = os.getenv("GROQ_API_KEY", "")
+        if not groq_key:
+            logger.error("GROQ_API_KEY não configurada.")
+            return None
         try:
-            groq_api_key = os.getenv("GROQ_API_KEY")
-            if not groq_api_key:
-                logger.error("GROQ_API_KEY não configurada! O LLM não pode ser inicializado.")
-                return None
-            
-            llm = ChatGroq(api_key=groq_api_key, model_name="llama3-8b-8192")
-            logger.info("LLM da Groq (llama3-8b-8192) inicializado com sucesso.")
+            llm = ChatGroq(api_key=groq_key, model_name="llama3-8b-8192")
+            logger.info("Groq LLM inicializado: llama3-8b-8192.")
             return llm
         except Exception as e:
-            logger.error(f"Falha catastrófica ao inicializar o LLM da Groq: {e}")
+            logger.error(f"Erro ao iniciar LLM Groq: {e}", exc_info=True)
             return None
 
-    def _initialize_crew(self):
-        aliexpress_tool = AliExpressToolAdapter(aliexpress_client=self.aliexpress_client)
+    def _initialize_crew(self) -> Crew:
+        tool = AliExpressToolAdapter(aliexpress_client=self.aliexpress_client)
 
-        request_analyzer = Agent(role='Analisador de Pedidos', goal='Analisar a mensagem do cliente, entender a intenção e extrair os termos de busca.', backstory='Você é um especialista em atendimento que entende a necessidade real do cliente.', llm=self.llm, allow_delegation=False, verbose=True)
-        product_hunter = Agent(role='Especialista em Buscas no AliExpress', goal='Encontrar os melhores produtos correspondentes aos termos de busca.', backstory='Você é um mestre em usar a API do AliExpress.', llm=self.llm, tools=[aliexpress_tool], allow_delegation=False, verbose=True)
-        response_curator = Agent(role='Curador de Respostas', goal='Selecionar os 3 melhores produtos e formatar uma resposta final amigável.', backstory='Você tem um olho clínico para qualidade e sabe apresentar informações de forma clara.', llm=self.llm, allow_delegation=False, verbose=True)
+        requester = Agent(
+            role="Analisador de Mensagem",
+            goal="Entender intenção e extrair termos de busca.",
+            backstory="Você é um especialista em atendimento ao cliente.",
+            llm=self.llm,
+            allow_delegation=False,
+            verbose=False
+        )
+        hunter = Agent(
+            role="Buscador AliExpress",
+            goal="Buscar produtos a partir dos termos extraídos.",
+            backstory="Você domina a API de afiliados do AliExpress.",
+            llm=self.llm,
+            tools=[tool],
+            allow_delegation=False,
+            verbose=False
+        )
+        curator = Agent(
+            role="Curador de Resposta",
+            goal="Selecionar 3 melhores produtos e formatar a resposta final.",
+            backstory="Você é excelente em comunicação clara e amigável.",
+            llm=self.llm,
+            allow_delegation=False,
+            verbose=False
+        )
 
-        analysis_task = Task(description='Analise a mensagem do cliente: "{message}". Classifique a intenção como "busca_produto" ou "conversa_geral". Se for busca, extraia os termos de busca. Crie uma resposta empática.', expected_output='Um objeto JSON seguindo o modelo AnalysisModel.', agent=request_analyzer, output_pydantic=AnalysisModel)
-        product_task = Task(description='Com base nos termos de busca da análise, use a ferramenta para encontrar os produtos.', expected_output='Uma lista JSON de produtos.', agent=product_hunter, context=[analysis_task])
-        curation_task = Task(description='Analise a conversa e a lista de produtos. Selecione os 3 melhores e formate uma resposta final para o cliente. Se nenhum produto foi encontrado, crie uma mensagem simpática informando isso.', expected_output='O texto final da mensagem a ser enviada para o cliente.', agent=response_curator, context=[analysis_task, product_task])
+        analysis_task = Task(
+            description='Analise a mensagem: "{message}", extraia intent e termos.',
+            expected_output="JSON conforme AnalysisModel.",
+            agent=requester,
+            output_pydantic=AnalysisModel
+        )
+        product_task = Task(
+            description="Use os termos da análise para buscar produtos.",
+            expected_output="Lista JSON de produtos.",
+            agent=hunter,
+            context=[analysis_task]
+        )
+        curation_task = Task(
+            description="Selecione e formate a resposta final para o usuário.",
+            expected_output="Texto final da mensagem.",
+            agent=curator,
+            context=[analysis_task, product_task]
+        )
 
-        return Crew(agents=[request_analyzer, product_hunter, response_curator], tasks=[analysis_task, product_task, curation_task], process=Process.sequential, verbose=2)
+        return Crew(
+            agents=[requester, hunter, curator],
+            tasks=[analysis_task, product_task, curation_task],
+            process=Process.sequential,
+            verbose=1
+        )
 
     def process_message(self, sender_id: str, user_message: str):
-        logger.info(f"Zafira Core processando mensagem de {sender_id} com CrewAI: '{user_message}'")
-        
+        logger.info(f"[ZafiraCore] Mensagem recebida de {sender_id}: '{user_message}'")
+
         if not self.crew:
-            self.whatsapp_client.send_text_message(sender_id, "Desculpe, estou com um problema sério no meu cérebro e não consigo pensar agora. Tente novamente mais tarde.")
+            self.whatsapp_client.send_text_message(
+                sender_id,
+                "Desculpe, estou com dificuldade no meu cérebro. Tente novamente mais tarde."
+            )
             return
 
         try:
-            inputs = {'message': user_message}
+            inputs = {"message": user_message}
             result = self.crew.kickoff(inputs=inputs)
-            
-            logger.info(f"Resultado final da tripulação: {result}")
+            logger.info(f"[ZafiraCore] Resposta gerada pelo Crew: {result}")
             self.whatsapp_client.send_text_message(sender_id, result)
         except Exception as e:
-            logger.error(f"Erro catastrófico ao executar a tripulação (crew): {e}", exc_info=True)
-            self.whatsapp_client.send_text_message(sender_id, "Uau, essa pergunta deu um nó na minha cabeça! Tive um erro aqui. Você pode tentar perguntar de outra forma?")
-
+            logger.error(f"Erro crítico no CrewAI: {e}", exc_info=True)
+            self.whatsapp_client.send_text_message(
+                sender_id,
+                "Putz, deu um nó na minha cabeça! Tente reformular a pergunta."
+            )
