@@ -91,10 +91,15 @@ class AliExpressClient:
         }
         params["sign"] = self._generate_signature(params)
         
-        logger.info("AliExpress QUERY PARAMS: %s", params)
+        # Para garantir a ordem correta dos parâmetros na URL, montamos a URL manualmente.
+        encoded_params = urlencode(sorted(params.items()))
+        full_url = f"{self.api_url}?{encoded_params}"
+        
+        logger.info("AliExpress QUERY URL: %s", full_url)
 
         try:
-            resp = requests.get(self.api_url, params=params, timeout=40)
+            # Usamos a URL já montada para garantir a ordem.
+            resp = requests.get(full_url, timeout=40)
             logger.info("AliExpress STATUS: %s", resp.status_code)
             logger.info("AliExpress BODY: %s", resp.text[:1000])
             resp.raise_for_status()
