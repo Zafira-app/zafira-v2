@@ -1,4 +1,4 @@
-# app.py - VERSÃO 3.9 - ARQUITETURA CORRETA E SIMPLIFICADA
+# app.py - VERSÃO 3.7 - IMPLEMENTANDO O PLANO ORIGINAL (CLIENTE DIRETO)
 
 import os
 import json
@@ -15,8 +15,7 @@ from dotenv import load_dotenv
 from crewai import Agent, Task, Crew, Process
 from crewai_tools import BaseTool
 from pydantic import BaseModel
-# A FORMA CORRETA DE IMPORTAR
-from langchain_groq import ChatGroq
+from groq import Groq # <-- USANDO A BIBLIOTECA OFICIAL
 
 # ==============================================================================
 # CARREGA VARIÁVEIS DE AMBIENTE E CONFIGURA LOG
@@ -64,14 +63,31 @@ class AliExpressSearchTool(BaseTool):
 aliexpress_tool = AliExpressSearchTool()
 
 # ==============================================================================
-# CONFIGURAÇÃO DO LLM (GROQ) - DA FORMA CORRETA
+# CONFIGURAÇÃO DO LLM (A FORMA CORRETA E DIRETA)
 # ==============================================================================
+# O CrewAI pode usar qualquer LLM que siga o padrão, então criamos um wrapper simples.
+class GroqLLM:
+    def __init__(self, model="llama3-8b-8192"):
+        self.model = model
+        self.client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+        logger.info(f"Cliente Groq direto inicializado para o modelo {self.model}")
+
+    def __call__(self, messages, **kwargs):
+        # O CrewAI passa uma lista de dicionários com 'role' e 'content'
+        # A biblioteca oficial da Groq espera exatamente isso.
+        if not isinstance(messages, list):
+             messages = [messages]
+
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            temperature=0.2,
+        )
+        return response.choices[0].message.content
+
 try:
-    llm = ChatGroq(
-        api_key=os.getenv("GROQ_API_KEY"),
-        model_name="llama3-8b-8192" # Usando o modelo estável
-    )
-    logger.info("LLM da Groq inicializado com sucesso com o modelo llama3-8b-8192.")
+    llm = GroqLLM()
+    logger.info("LLM da Groq inicializado com sucesso.")
 except Exception as e:
     logger.error(f"Falha ao inicializar o LLM da Groq: {e}")
     llm = None
