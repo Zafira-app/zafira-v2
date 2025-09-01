@@ -1,4 +1,4 @@
-# Zafira V3.7 - Dependências Simplificadas
+# Zafira V3.9 - Dependências Corretas e Estáveis
 
 Flask==2.3.3
 gunicorn==21.2.0
@@ -8,4 +8,4 @@ python-dotenv==1.0.0
 # Framework de Agentes e LLM (versões compatíveis com Python 3.11)
 crewai==0.28.8
 crewai-tools==0.1.6
-groq==0.9.0 # Usando a biblioteca oficial e direta da Groq
+langchain-groq==0.1.3 # <-- A ponte oficial e correta
