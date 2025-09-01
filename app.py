@@ -1,4 +1,4 @@
-# app.py - VERSÃO 2.0.1 - CORREÇÃO DE SINTAXE
+# app.py - VERSÃO 2.0.2 - CORREÇÃO DE MODELO DA GROQ
 
 import os
 import json
@@ -30,7 +30,10 @@ class BrainAgent:
     def __init__(self):
         self.api_url = "https://api.groq.com/openai/v1/chat/completions"
         self.api_key = os.getenv("GROQ_API_KEY" )
-        self.model = "llama3-8b-8192"
+        # ==================================================================
+        # ALTERAÇÃO PRINCIPAL: Usando um modelo mais robusto e disponível.
+        # ==================================================================
+        self.model = "gemma-7b-it" 
         if not self.api_key:
             logger.error("GROQ_API_KEY não configurada! O cérebro não pode funcionar.")
         else:
