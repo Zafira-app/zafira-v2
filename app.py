@@ -1,4 +1,4 @@
-# app.py - VERSÃO 2.0.2 - CORREÇÃO DE MODELO DA GROQ
+# app.py - VERSÃO 2.0.3 - CORREÇÃO DE COMPATIBILIDADE DA GROQ
 
 import os
 import json
@@ -30,9 +30,6 @@ class BrainAgent:
     def __init__(self):
         self.api_url = "https://api.groq.com/openai/v1/chat/completions"
         self.api_key = os.getenv("GROQ_API_KEY" )
-        # ==================================================================
-        # ALTERAÇÃO PRINCIPAL: Usando um modelo mais robusto e disponível.
-        # ==================================================================
         self.model = "gemma-7b-it" 
         if not self.api_key:
             logger.error("GROQ_API_KEY não configurada! O cérebro não pode funcionar.")
@@ -48,24 +45,27 @@ class BrainAgent:
             "Content-Type": "application/json"
         }
 
+        # ==================================================================
+        # ALTERAÇÃO PRINCIPAL 2: Reforçando a instrução no prompt.
+        # ==================================================================
         system_prompt = """
-        Você é o cérebro da Zafira, uma assistente de compras do WhatsApp. Sua função é analisar a mensagem do usuário e retornar um JSON estruturado.
+        Você é o cérebro da Zafira, uma assistente de compras do WhatsApp. Sua única função é analisar a mensagem do usuário e retornar um JSON válido, e nada mais.
 
         Siga estas regras estritamente:
-        1.  **Analise a intenção (intent)**:
-            - "saudacao": Se for apenas um oi, bom dia, olá, tudo bem, etc.
-            - "busca_produto": Se o usuário expressar qualquer desejo de encontrar, procurar, ver ou comprar um produto.
-            - "conversa_geral": Para qualquer outra coisa que não seja uma busca (agradecimentos, perguntas sobre você, etc).
-        2.  **Extraia os termos de busca (search_terms)**: O produto principal que o usuário quer. Seja conciso.
-        3.  **Extraia os filtros (filters)**: Detalhes como preço máximo/mínimo, cor, marca, etc. Retorne como um objeto. Se não houver filtros, retorne um objeto vazio {}.
-        4.  **Crie uma resposta empática (empathetic_reply)**: Uma frase curta, amigável e natural em português para iniciar a conversa, confirmando que você entendeu o pedido.
+        1.  **Analise a intenção (intent)**: "saudacao", "busca_produto", ou "conversa_geral".
+        2.  **Extraia os termos de busca (search_terms)**: O produto principal que o usuário quer.
+        3.  **Extraia os filtros (filters)**: Detalhes como preço, cor, etc.
+        4.  **Crie uma resposta empática (empathetic_reply)**: Uma frase curta e amigável em português.
 
-        **Exemplos:**
-        - User: "Oi, tudo bem?" -> {"intent": "saudacao", "search_terms": null, "filters": {}, "empathetic_reply": "Olá! Tudo bem por aqui. 😊 Como posso te ajudar a encontrar algo hoje?"}
-        - User: "tô pensando em dar um fone de ouvido gamer bom, mas não posso gastar mais de 300 reais" -> {"intent": "busca_produto", "search_terms": "fone de ouvido gamer", "filters": {"max_price": 300}, "empathetic_reply": "Ótima ideia de presente! 🎮 Vou procurar alguns fones de ouvido gamer excelentes até R$300 para você."}
-        - User: "obrigado zafira" -> {"intent": "conversa_geral", "search_terms": null, "filters": {}, "empathetic_reply": "De nada! Se precisar de mais alguma coisa, é só chamar! 😉"}
+        Sua resposta DEVE ser um único bloco de código JSON, começando com { e terminando com }. Não inclua texto antes ou depois do JSON.
 
-        O JSON de saída DEVE ter sempre as 4 chaves: "intent", "search_terms", "filters", "empathetic_reply".
+        Exemplo de resposta:
+        {
+          "intent": "busca_produto",
+          "search_terms": "fone de ouvido gamer",
+          "filters": {"max_price": 300},
+          "empathetic_reply": "Ótima ideia de presente! 🎮 Vou procurar alguns fones de ouvido gamer excelentes até R$300 para você."
+        }
         """
 
         payload = {
@@ -74,22 +74,35 @@ class BrainAgent:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message}
             ],
-            "temperature": 0.5,
-            "response_format": {"type": "json_object"}
+            "temperature": 0.2, # Reduzimos a "criatividade" para focar no formato JSON
+            # ==================================================================
+            # ALTERAÇÃO PRINCIPAL 1: Removendo o parâmetro "response_format".
+            # ==================================================================
         }
 
         try:
             logger.info("Enviando para análise do BrainAgent: '%s'", user_message)
             response = requests.post(self.api_url, headers=headers, json=payload, timeout=25)
             response.raise_for_status()
+            
+            # Agora, precisamos extrair o JSON da resposta de texto.
             analysis_str = response.json()["choices"][0]["message"]["content"]
             logger.info("Análise recebida do BrainAgent: %s", analysis_str)
-            return json.loads(analysis_str)
+            
+            # Tentativa de extrair o JSON do texto, caso a IA adicione ```json ... ```
+            match = re.search(r'\{.*\}', analysis_str, re.DOTALL)
+            if match:
+                json_str = match.group(0)
+                return json.loads(json_str)
+            else:
+                # Se não encontrar, tenta decodificar a string inteira
+                return json.loads(analysis_str)
+
         except requests.RequestException as e:
-            logger.error("Erro na API da Groq: %s", e)
+            logger.error("Erro na API da Groq: %s. Detalhes: %s", e, e.response.text if e.response else "Sem resposta")
             return {"intent": "error", "empathetic_reply": "Desculpe, meu cérebro está um pouco lento agora. Poderia repetir, por favor?"}
-        except (json.JSONDecodeError, KeyError) as e:
-            logger.error("Erro ao processar resposta da Groq: %s", e)
+        except (json.JSONDecodeError, KeyError, AttributeError) as e:
+            logger.error("Erro ao processar resposta da Groq: %s. Resposta recebida: %s", e, analysis_str)
             return {"intent": "error", "empathetic_reply": "Tive uma ideia brilhante, mas me perdi no pensamento. Pode me dizer de novo?"}
 
 
@@ -171,7 +184,7 @@ class AliExpressClient:
             return {"error": str(e)}
 
 # ==============================================================================
-# NÚCLEO DA ZAFIRA (Atualizado para usar o BrainAgent)
+# NÚCLEO DA ZAFIRA (Sem alterações)
 # ==============================================================================
 class ZafiraCore:
     def __init__(self):
@@ -230,7 +243,7 @@ class ZafiraCore:
         return "\n\n".join(lines)
 
 # ==============================================================================
-# FLASK & ROTAS (COM A CORREÇÃO DE SINTAXE)
+# FLASK & ROTAS (Sem alterações)
 # ==============================================================================
 app = Flask(__name__)
 zafira = ZafiraCore()
