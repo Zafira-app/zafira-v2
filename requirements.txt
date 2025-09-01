@@ -1,5 +1,4 @@
-# Zafira V2.0 - Dependências
-# Assistente inteligente de compras para WhatsApp
+# Zafira V3.1 - Dependências com Versões Fixas para Compatibilidade
 
 # Framework web
 Flask==2.3.3
@@ -11,8 +10,8 @@ requests==2.31.0
 # Utilitários
 python-dotenv==1.0.0
 
-# Logging e monitoramento
-Werkzeug==2.3.7
-# Forçando novo build para limpar cache - 21/08/2025
-crewai
-groq
+# Framework de Agentes e LLM
+# Versões específicas para evitar compilação em Rust na Render
+crewai==0.28.8
+langchain-groq==0.1.3
+crewai-tools==0.1.6
