@@ -1,14 +1,4 @@
-# requirements.txt
-
-# Dependências principais
 Flask==2.2.3
 gunicorn==20.1.0
 requests==2.31.0
-
-# Clients específicos do seu projeto
-whatsapp-client==1.0.0
-aliexpress-client==1.2.3
-groc-client==0.5.1
-
-# Testes
 pytest>=7.0.0
