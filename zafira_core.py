@@ -20,10 +20,9 @@ class ZafiraCore:
         # configurações de administrador
         self.admin_ids    = os.getenv("ADMIN_IDS", "").split(",")
         self.admin_pin    = os.getenv("ADMIN_PIN", "").strip()
-        # estados: "aguardando_pin" ou "autenticado"
-        self.admin_states = {}
+        self.admin_states = {}   # { sender_id: "aguardando_pin" | "autenticado" }
 
-        # armazena última busca para "links"
+        # armazena última busca para “links”
         self._last_products = []
         self._last_query    = ""
 
@@ -62,9 +61,7 @@ class ZafiraCore:
                     "❌ PIN incorreto. Tente novamente:"
                 )
 
-        # 3) continuar fluxo normal (ou modo admin autenticado)
-        #    comandos avançados podem checar self.admin_states[sender_id] == "autenticado"
-
+        # 3) fluxo normal ou modo admin já autenticado
         if intent == "saudacao":
             return self._handle_saudacao(sender_id)
 
@@ -83,7 +80,7 @@ class ZafiraCore:
         if intent == "piada":
             return self._handle_piada(sender_id)
 
-        # intenção desconhecida
+        # fallback
         return self._handle_fallback(sender_id)
 
     def _detect_intent(self, msg: str) -> str:
@@ -105,21 +102,21 @@ class ZafiraCore:
         return "desconhecido"
 
     def _handle_saudacao(self, sender_id: str):
-        text = (
-            "Oi! 😊 Eu sou a Zafira.\n"
-            "– Para compras: diga ‘Quero um fone bluetooth’\n"
-            "– Para links: ‘Links dos produtos’\n"
-            "– Para autenticar no modo ADM: ‘Vou entrar no modo ADM’\n"
-            "– Pergunte qualquer outra coisa!"
-        )
+        lines = [
+            "Oi! 😊 Eu sou a Zafira.",
+            "– Para compras: diga ‘Quero um fone bluetooth’",
+            "– Para links: ‘Links dos produtos’"
+        ]
+        # só mostra opção ADM para IDs autorizados
+        if sender_id in self.admin_ids:
+            lines.append("– Para autenticar no modo ADM: ‘Vou entrar no modo ADM’")
+        text = "\n".join(lines)
         self.whatsapp.send_text_message(sender_id, text)
 
     def _handle_produto(self, sender_id: str, message: str):
-        # extrai termos e limites de preço
-        terms             = self._clean_terms(message)
+        terms = self._clean_terms(message)
         min_price, max_price = self._extract_price_limits(message)
 
-        # busca bruta
         raw = (
             self.aliexpress.search_products(terms, limit=10, page_no=1)
                 .get("aliexpress_affiliate_product_query_response", {})
@@ -129,7 +126,6 @@ class ZafiraCore:
                 .get("product", [])
         ) or []
 
-        # filtra por preço, se informado
         def price_val(p):
             return float(p.get("target_sale_price","0").replace(",","."))
         if min_price is not None:
@@ -137,12 +133,10 @@ class ZafiraCore:
         if max_price is not None:
             raw = [p for p in raw if price_val(p) <= max_price]
 
-        # guarda para links
         top3 = raw[:3]
         self._last_products = top3
         self._last_query    = terms
 
-        # prepara resposta
         if not top3:
             text = f"⚠️ Não achei '{terms}' com esses critérios."
         else:
@@ -151,7 +145,7 @@ class ZafiraCore:
                 title = p.get("product_title","-")
                 price = p.get("target_sale_price","-")
                 lines.append(f"• {title} — R${price}")
-            lines.append("🔗 Para os links completos, diga ‘Links dos produtos’.")
+            lines.append("🔗 Para ver links completos, diga ‘Links dos produtos’.")
             text = "\n".join(lines)
 
         self.whatsapp.send_text_message(sender_id, text)
@@ -162,7 +156,6 @@ class ZafiraCore:
                 sender_id,
                 "Nenhuma busca recente. Diga ‘Quero um fone bluetooth’ primeiro."
             )
-
         lines = [f"Links para '{self._last_query}':"]
         for p in self._last_products:
             url = p.get("promotion_link") or p.get("product_detail_url","-")
@@ -184,20 +177,20 @@ class ZafiraCore:
     def _handle_piada(self, sender_id: str):
         self.whatsapp.send_text_message(
             sender_id,
-            "🤣 Por que o programador confunde Halloween com Natal?\n"
-            "Porque OCT 31 == DEC 25!"
+            "🤣 Por que o programador confunde Halloween com Natal?\nPorque OCT 31 == DEC 25!"
         )
 
     def _handle_fallback(self, sender_id: str):
-        text = (
-            "Desculpe, não entendi. 🤔\n"
-            "Você pode tentar:\n"
-            "- ‘Quero um fone bluetooth’\n"
-            "- ‘Celular até 3000 reais’\n"
-            "- ‘Links dos produtos’\n"
-            "- ‘Vou entrar no modo ADM’\n"
-            "- ‘Me conte uma piada’"
-        )
+        lines = [
+            "Desculpe, não entendi. 🤔",
+            "Você pode tentar:",
+            "- ‘Quero um fone bluetooth’",
+            "- ‘Celular até 3000 reais’",
+            "- ‘Links dos produtos’"
+        ]
+        if sender_id in self.admin_ids:
+            lines.append("- ‘Vou entrar no modo ADM’")
+        text = "\n".join(lines)
         self.whatsapp.send_text_message(sender_id, text)
 
     def _clean_terms(self, message: str) -> str:
@@ -206,13 +199,11 @@ class ZafiraCore:
         return " ".join(w for w in clean.split() if w not in stop)
 
     def _extract_price_limits(self, msg: str) -> tuple[float|None, float|None]:
-        # de X a Y reais
         m = re.search(r"(\d+(?:[.,]\d+)?)\s*(?:a|até|-)\s*(\d+(?:[.,]\d+)?)", msg)
         if m:
             lo = float(m.group(1).replace(",","."))
             hi = float(m.group(2).replace(",","."))
             return lo, hi
-        # até Y reais
         m2 = re.search(r"até\s*(\d+(?:[.,]\d+)?)", msg)
         if m2:
             hi = float(m2.group(1).replace(",","."))
