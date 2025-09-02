@@ -1,11 +1,12 @@
-# requirements.txt
-
 Flask==2.2.3
 gunicorn==20.1.0
 requests==2.31.0
 
-# Pinagem necessária para compatibilidade com Flask 2.2.x
+# Compatibilidade com Flask 2.2.x
 werkzeug>=2.2.0,<3.0.0
 
-# Ferramenta de testes
+# Carregamento de variáveis de ambiente
+python-dotenv>=0.21.0
+
+# Testes
 pytest>=7.0.0
