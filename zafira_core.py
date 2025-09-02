@@ -31,58 +31,58 @@ class ZafiraCore:
         self.ag_humor    = AgenteHumor()
         self.ag_adm_groq = AgenteConversaADMGroq()
 
-        # Sessões de chat
+        # Histórico de mensagens
         self.sessions = SessionManager(max_len=50)
 
-        # Admin config
-        self.admin_ids       = os.getenv("ADMIN_IDS", "").split(",")
-        self.admin_pin       = os.getenv("ADMIN_PIN", "").strip()
-        # mapeia sender_id → datetime de expiração do modo ADM
-        self.admin_sessions  = {}
+        # Configuração de administradores
+        self.admin_ids      = os.getenv("ADMIN_IDS", "").split(",")
+        self.admin_pin      = os.getenv("ADMIN_PIN", "").strip()
+        # Pode ser "aguardando_pin" ou datetime de expiração
+        self.admin_sessions = {}
 
-        # Última busca para fluxo "links"
+        # Últimos produtos para /links
         self._last_products = []
         self._last_query    = ""
 
-        logger.info("ZafiraCore iniciada com sesssões e autenticação temporária ADM.")
+        logger.info("ZafiraCore iniciada com sessões e autenticação ADM temporária.")
 
     def process_message(self, sender_id: str, message: str):
         now = datetime.utcnow()
 
-        # 1) Armazena mensagem no histórico
+        # 1) Guarda tudo no histórico
         self.sessions.push(sender_id, message)
         logger.debug(f"Session[{sender_id}]: {self.sessions.get(sender_id)}")
 
-        # 2) Detecta intenção básica
-        intent = self._detect_intent(message)
-        logger.info(f"[INTENT] {sender_id} → '{message}' => {intent}")
-
-        # 3) Saudação
-        if intent == "saudacao":
-            return self._handle_saudacao(sender_id)
-
-        # 4) Entrar no modo ADM (comando explícito)
-        if intent == "modo_admin":
-            return self._handle_modo_admin(sender_id)
-
-        # 5) Verifica PIN para autenticação
+        # 2) Se estiver aguardando PIN, trate primeiro
         if self.admin_sessions.get(sender_id) == "aguardando_pin":
             return self._handle_admin_pin(sender_id, message)
 
-        # 6) Relatório (genérico ou específico) – requer autenticação
-        if intent == "relatorio":
-            return self._handle_relatorio(sender_id, message)
-
-        # 7) Chat livre ADM: se autenticado e não expirou
+        # 3) Se já autenticado e dentro do prazo, chat livre ADM
         exp = self.admin_sessions.get(sender_id)
-        if exp and isinstance(exp, datetime) and now <= exp:
-            # reset timer para +30min a cada nova mensagem?
+        if isinstance(exp, datetime) and now <= exp:
+            # estende mais 30min a cada interação
             self.admin_sessions[sender_id] = now + timedelta(minutes=30)
             history = self.sessions.get(sender_id)
             reply = self.ag_adm_groq.responder(history, message)
             return self.whatsapp.send_text_message(sender_id, reply)
 
-        # 8) Small talk comum
+        # 4) Detecta intenção normal
+        intent = self._detect_intent(message)
+        logger.info(f"[INTENT] {sender_id} → '{message}' => {intent}")
+
+        # 5) Saudação
+        if intent == "saudacao":
+            return self._handle_saudacao(sender_id)
+
+        # 6) Entrar no modo ADM
+        if intent == "modo_admin":
+            return self._handle_modo_admin(sender_id)
+
+        # 7) Relatórios (exige autenticação)
+        if intent == "relatorio":
+            return self._handle_relatorio(sender_id, message)
+
+        # 8) Small talk geral
         if intent == "conversa_geral":
             resp = self.ag_conv.responder(message)
             if resp:
@@ -94,20 +94,20 @@ class ZafiraCore:
             if resp:
                 return self.whatsapp.send_text_message(sender_id, resp)
 
-        # 10) Fluxo de busca de produto
+        # 10) Busca de produto
         if intent == "produto":
             return self._handle_produto(sender_id, message)
 
-        # 11) Fluxo de links
+        # 11) Links de produto
         if intent == "links":
             return self._handle_links(sender_id)
 
-        # 12) Piadas / humor
+        # 12) Humor / piada
         if intent == "piada":
             joke = self.ag_humor.responder(message)
             return self.whatsapp.send_text_message(sender_id, joke)
 
-        # 13) Fallback geral
+        # 13) Fallback
         return self._handle_fallback(sender_id)
 
     def _detect_intent(self, msg: str) -> str:
@@ -142,17 +142,15 @@ class ZafiraCore:
     def _handle_modo_admin(self, sid: str):
         if sid not in self.admin_ids:
             return self.whatsapp.send_text_message(sid, "❌ Você não está autorizado ao modo ADM.")
-        # marca como aguardando PIN (temporário)
         self.admin_sessions[sid] = "aguardando_pin"
         return self.whatsapp.send_text_message(sid, "🔐 Modo ADM ativado. Informe seu PIN:")
 
     def _handle_admin_pin(self, sid: str, message: str):
         if message.strip() == self.admin_pin:
             # autentica por 30 minutos
-            expira = datetime.utcnow() + timedelta(minutes=30)
-            self.admin_sessions[sid] = expira
-            return self.whatsapp.send_text_message(sid, "✅ PIN correto. Acesso ADM liberado por 30 minutos.")
-        # mantém no estado aguardando_pin
+            self.admin_sessions[sid] = datetime.utcnow() + timedelta(minutes=30)
+            return self.whatsapp.send_text_message(sid, "✅ PIN correto. Acesso ADM liberado por 30 min.")
+        # se errar, continua aguardando PIN
         self.admin_sessions[sid] = "aguardando_pin"
         return self.whatsapp.send_text_message(sid, "❌ PIN incorreto. Tente novamente:")
 
@@ -161,17 +159,17 @@ class ZafiraCore:
         if not (isinstance(exp, datetime) and datetime.utcnow() <= exp):
             return self.whatsapp.send_text_message(sid, "❌ Autentique-se no modo ADM para ver relatórios.")
         parts = message.lower().strip().split(maxsplit=1)
-        # relatório específico
         if len(parts) == 2:
             tipo = parts[1]
-            if tipo in ("interacoes", "pesquisas"):
+            if tipo in ("interacoes","pesquisas"):
                 buscas = []
                 for hist in self.sessions.sessions.values():
                     buscas += [
                         m for m in hist
                         if m.lower().split()[0] in ("quero","procuro","comprar","busco")
                     ]
-                texto = "📊 Relatório de pesquisas:\n" + "\n".join(f"- {b}" for b in buscas) or "Nenhuma pesquisa."
+                texto = "📊 Relatório de pesquisas:\n" + "\n".join(f"- {b}" for b in buscas) \
+                        or "Nenhuma pesquisa registrada."
                 return self.whatsapp.send_text_message(sid, texto)
             if tipo == "usuarios":
                 total = len(self.sessions.sessions)
@@ -183,31 +181,31 @@ class ZafiraCore:
                 "Use 'Relatório interacoes' ou 'Relatório usuarios'."
             )
         # relatório geral
-        total_users = len(self.sessions.sessions)
-        last_q      = self._last_query or "nenhuma"
-        last_n      = len(self._last_products)
+        total = len(self.sessions.sessions)
+        last_q = self._last_query or "nenhuma"
+        last_n = len(self._last_products)
         texto = (
             "📋 Relatório geral:\n"
-            f"- Usuários únicos hoje: {total_users}\n"
+            f"- Usuários únicos hoje: {total}\n"
             f"- Última busca: '{last_q}' ({last_n} itens)\n"
             "Para detalhes: 'Relatório interacoes' ou 'Relatório usuarios'."
         )
         return self.whatsapp.send_text_message(sid, texto)
 
     def _handle_produto(self, sid: str, message: str):
-        # (mantenha aqui seu código atual de busca e formatação)
+        # seu código de busca, filtro e formatação permanece aqui
         pass
 
     def _handle_links(self, sid: str):
-        # (mantenha aqui seu código atual de links)
+        # seu código de links permanece aqui
         pass
 
     def _handle_fallback(self, sid: str):
-        return self.whatsapp.send_text_message(
-            sid,
+        texto = (
             "Desculpe, não entendi. 🤔\n"
             "Você pode tentar:\n"
             "- ‘Quero um fone bluetooth’\n"
             "- ‘Links dos produtos’\n"
             "- ‘Me conte uma piada’"
         )
+        return self.whatsapp.send_text_message(sid, texto)
