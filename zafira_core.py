@@ -40,7 +40,6 @@ class ZafiraCore:
         return "desconhecido"
 
     def _handle_greeting(self, sender_id: str):
-        logger.info("[GREETING] Enviando saudação")
         text = (
             "Oi! 😊 Sou a Zafira, sua assistente de compras.\n"
             "Eletrônicos ou mercearia – o que você procura hoje?"
@@ -49,30 +48,23 @@ class ZafiraCore:
 
     def _handle_product(self, sender_id: str, message: str):
         terms = self._clean_terms(message)
-        logger.info(f"[PRODUCT] Termos extraídos: '{terms}'")
         if not terms:
             return self._handle_fallback(sender_id)
 
-        logger.info("[PRODUCT] Chamando AliExpressClient.search_products")
         data = self.aliexpress.search_products(terms, limit=5, page_no=1)
         reply = self._format_aliexpress(data, terms)
-        logger.info("[PRODUCT] Resposta formatada, enviando mensagem")
         self.whatsapp.send_text_message(sender_id, reply)
 
     def _handle_grocery(self, sender_id: str, message: str):
         terms = self._clean_terms(message)
-        logger.info(f"[GROCERY] Termos extraídos: '{terms}'")
         if not terms:
             return self._handle_fallback(sender_id)
 
-        logger.info("[GROCERY] Chamando GROCClient.search_items")
         data = self.groc.search_items(terms, limit=5)
         reply = self._format_groc(data, terms)
-        logger.info("[GROCERY] Resposta formatada, enviando mensagem")
         self.whatsapp.send_text_message(sender_id, reply)
 
     def _handle_fallback(self, sender_id: str):
-        logger.info("[FALLBACK] Nenhuma intent reconhecida")
         text = (
             "Desculpe, não entendi. 🤔\n"
             "Tente:\n"
@@ -103,14 +95,17 @@ class ZafiraCore:
         if not products:
             return f"⚠️ Não achei '{query}' no AliExpress."
 
-        lines = [f"Aqui estão opções para '{query}':"]
-        for p in products:
+        # Lista apenas os 3 primeiros produtos, título e preço
+        lines = [f"Encontrei esses resultados para '{query}':"]
+        for p in products[:3]:
             title = p.get("product_title") or p.get("titulo_produto") or "-"
             price = p.get("target_sale_price") or p.get("preco_alvo") or "-"
-            link  = p.get("promotion_link") or p.get("product_detail_url") or p.get("url_detalhe_produto") or "-"
-            lines.append(f"🛒 {title}\n💰 {price}\n🔗 {link}")
+            lines.append(f"• {title} — R${price}")
 
-        return "\n\n".join(lines)
+        lines.append(
+            "🔗 Quer ver os links completos? Peça 'Links dos produtos'."
+        )
+        return "\n".join(lines)
 
     def _format_groc(self, data: dict, query: str) -> str:
         if "error" in data:
@@ -120,8 +115,8 @@ class ZafiraCore:
         if not items:
             return f"⚠️ Não achei '{query}' na mercearia."
 
-        lines = [f"Encontrei estes itens na mercearia para '{query}':"]
-        for it in items:
+        lines = [f"Encontrei estes itens de mercearia para '{query}':"]
+        for it in items[:5]:
             name  = it.get("name")  or it.get("nome")  or "-"
             price = it.get("price") or it.get("preco") or "-"
             lines.append(f"• {name} — R${price}")
