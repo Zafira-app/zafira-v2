@@ -1,58 +1,49 @@
-# app.py - A CAMADA DE SERVIÇO WEB
-
 import os
 import json
 import logging
+
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 
-# Importa o coração da nossa aplicação
 from zafira_core import ZafiraCore
 
-# Carrega variáveis de ambiente e configura o log
+# Carrega .env e configura logger
 load_dotenv()
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(name)s - %(message)s")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(name)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
-# Inicializa o Flask e a Zafira
+# Instancia Flask e ZafiraCore
 app = Flask(__name__)
 zafira = ZafiraCore()
 
-# ==============================================================================
-# ROTAS
-# ==============================================================================
 @app.route("/health", methods=["GET"])
 def health():
-    """Verifica a saúde do serviço."""
     return "OK", 200
 
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
-    """Webhook principal para receber mensagens do WhatsApp."""
     if request.method == "GET":
-        # Processo de verificação do WhatsApp
-        if request.args.get("hub.mode") == "subscribe" and request.args.get("hub.verify_token") == os.getenv("WHATSAPP_VERIFY_TOKEN"):
+        # Verificação do token do WhatsApp
+        if (request.args.get("hub.mode") == "subscribe" and
+            request.args.get("hub.verify_token") == os.getenv("WHATSAPP_VERIFY_TOKEN")):
             return request.args.get("hub.challenge"), 200
         return "Forbidden", 403
 
-    # Processamento de mensagens recebidas via POST
+    # Recebe POST com mensagem de usuário
     try:
         payload = request.get_json()
         logger.info("Webhook recebido: %s", json.dumps(payload, indent=2))
-        
         change = payload["entry"][0]["changes"][0]
-        if change["field"] == "messages":
-            message_data = change["value"]["messages"][0]
-            sender_id = message_data["from"]
-            user_message = message_data["text"]["body"]
-            
-            # Delega o processamento para o ZafiraCore
+        if change.get("field") == "messages":
+            msg = change["value"]["messages"][0]
+            sender_id    = msg["from"]
+            user_message = msg["text"]["body"]
             zafira.process_message(sender_id, user_message)
-
-    except (KeyError, IndexError, TypeError) as e:
-        logger.info("Ignorado: webhook sem texto de mensagem de usuário ou formato inesperado. Erro: %s", e)
     except Exception as e:
-        logger.error("Erro inesperado no webhook: %s", e, exc_info=True)
+        logger.info("Ignorado: payload inesperado ou sem texto (%s)", e)
 
     return jsonify({"status": "ok"}), 200
 
