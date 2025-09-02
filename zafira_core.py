@@ -10,27 +10,29 @@ from clients.groc_client import GROCClient
 
 from agents.agente_conversa_geral import AgenteConversaGeral
 from agents.agente_conhecimento import AgenteConhecimento
+from agents.agente_humor import AgenteHumor
 
 logger = logging.getLogger(__name__)
 
 
 class ZafiraCore:
     def __init__(self):
-        # Inicialização dos clientes
-        self.whatsapp   = WhatsAppClient()
-        self.aliexpress = AliExpressClient()
-        self.groc       = GROCClient()
+        # Inicializa clientes
+        self.whatsapp    = WhatsAppClient()
+        self.aliexpress  = AliExpressClient()
+        self.groc        = GROCClient()
 
-        # Agentes de conversa e de conhecimento
-        self.ag_conv        = AgenteConversaGeral()
+        # Instancia agentes especializados
+        self.ag_conv         = AgenteConversaGeral()
         self.ag_conhecimento = AgenteConhecimento()
+        self.ag_humor        = AgenteHumor()
 
         # Configuração de administrador
         self.admin_ids    = os.getenv("ADMIN_IDS", "").split(",")
         self.admin_pin    = os.getenv("ADMIN_PIN", "").strip()
-        self.admin_states = {}  # { sender_id: "aguardando_pin" | "autenticado" }
+        self.admin_states = {}   # { sender_id: "aguardando_pin"|"autenticado" }
 
-        # Armazena últimos produtos e consulta para o fluxo 'links'
+        # Armazena resultados da última busca para 'links'
         self._last_products = []
         self._last_query    = ""
 
@@ -40,33 +42,33 @@ class ZafiraCore:
         intent = self._detect_intent(message)
         logger.info(f"[PROCESS] {sender_id} → '{message}'  intent='{intent}'")
 
-        # 1) Small talk via AgenteConversaGeral
+        # 1) Small talk
         if intent == "conversa_geral":
             resposta = self.ag_conv.responder(message)
             if resposta:
                 return self.whatsapp.send_text_message(sender_id, resposta)
 
-        # 2) Entrar no modo admin
+        # 2) Entrar no modo ADM
         if intent == "modo_admin":
             if sender_id in self.admin_ids:
                 self.admin_states[sender_id] = "aguardando_pin"
                 return self.whatsapp.send_text_message(
                     sender_id,
-                    "🔐 Você entrou no modo ADM. Por favor, informe seu PIN:"
+                    "🔐 Você entrou no modo ADM. Informe seu PIN:"
                 )
             else:
                 return self.whatsapp.send_text_message(
                     sender_id,
-                    "❌ Você não está autorizado a entrar no modo ADM."
+                    "❌ Você não tem permissão para o modo ADM."
                 )
 
-        # 3) Verificação de PIN
+        # 3) Verificar PIN
         if self.admin_states.get(sender_id) == "aguardando_pin":
             if message.strip() == self.admin_pin:
                 self.admin_states[sender_id] = "autenticado"
                 return self.whatsapp.send_text_message(
                     sender_id,
-                    "✅ PIN correto. Você agora está autenticado como ADMIN."
+                    "✅ Autenticado como ADMIN."
                 )
             else:
                 return self.whatsapp.send_text_message(
@@ -74,30 +76,31 @@ class ZafiraCore:
                     "❌ PIN incorreto. Tente novamente:"
                 )
 
-        # 4) Perguntas de conhecimento geral
+        # 4) Conhecimento geral
         if intent == "informacao_geral":
             resposta = self.ag_conhecimento.responder(message)
             if resposta:
                 return self.whatsapp.send_text_message(sender_id, resposta)
-            # Se não encontrou resposta, cai no fallback
+            # não achou → cair no fallback
 
-        # 5) Fluxo de compras
+        # 5) Busca de produto
         if intent == "produto":
             return self._handle_produto(sender_id, message)
 
-        # 6) Fluxo de links
+        # 6) Links de produtos
         if intent == "links":
             return self._handle_links(sender_id)
 
-        # 7) Contar piada
+        # 7) Humor / Piadas
         if intent == "piada":
-            return self._handle_piada(sender_id)
+            joke = self.ag_humor.responder(message)
+            return self.whatsapp.send_text_message(sender_id, joke)
 
-        # 8) Saudação padrão
+        # 8) Saudação
         if intent == "saudacao":
             return self._handle_saudacao(sender_id)
 
-        # 9) Fallback final
+        # 9) Fallback
         return self._handle_fallback(sender_id)
 
     def _detect_intent(self, msg: str) -> str:
@@ -106,7 +109,7 @@ class ZafiraCore:
             return "modo_admin"
         if any(k in m for k in ["o que é","defini","quem","quando","onde","por que"]):
             return "informacao_geral"
-        if any(k in m for k in ["quero","busco","procuro","comprar"]):
+        if any(k in m for k in ["quero","procuro","comprar","busco"]):
             return "produto"
         if any(k in m for k in ["link","links","url","urls"]):
             return "links"
@@ -120,18 +123,20 @@ class ZafiraCore:
         linhas = [
             "Oi! 😊 Eu sou a Zafira.",
             "– Para buscar produtos: ‘Quero um fone bluetooth’",
-            "– Para ver links: ‘Links dos produtos’",
-            "– Perguntas gerais: ‘O que é API?’"
+            "– Para links dos produtos: ‘Links dos produtos’",
+            "– Para perguntas gerais: ‘O que é API?’",
+            "– Para piadas: ‘Conte uma piada’"
         ]
         if sender_id in self.admin_ids:
-            linhas.append("– Modo ADM: ‘Vou entrar no modo ADM’")
+            linhas.append("– Para modo ADM: ‘Vou entrar no modo ADM’")
         texto = "\n".join(linhas)
         self.whatsapp.send_text_message(sender_id, texto)
 
     def _handle_produto(self, sender_id: str, message: str):
+        # Analisa termos e preço
         termos, min_p, max_p = self._extract_terms_and_prices(message)
 
-        # Busca bruta na API
+        # Busca na API AliExpress
         raw = (
             self.aliexpress
                 .search_products(termos, limit=10, page_no=1)
@@ -143,14 +148,13 @@ class ZafiraCore:
         ) or []
 
         # Filtra por preço
-        def price_val(p):
-            return float(p.get("target_sale_price","0").replace(",","."))
+        def price_val(p): return float(p.get("target_sale_price","0").replace(",","."))
         if min_p is not None:
             raw = [p for p in raw if price_val(p) >= min_p]
         if max_p is not None:
             raw = [p for p in raw if price_val(p) <= max_p]
 
-        # Seleciona top 3
+        # Guarda top3 para links
         top3 = raw[:3]
         self._last_products = top3
         self._last_query    = termos
@@ -158,12 +162,12 @@ class ZafiraCore:
         if not top3:
             texto = f"⚠️ Não encontrei '{termos}' com esses critérios."
         else:
-            linhas = [f"Encontrei estes resultados para '{termos}':"]
+            linhas = [f"Resultados para '{termos}':"]
             for p in top3:
                 title = p.get("product_title","-")
                 price = p.get("target_sale_price","-")
                 linhas.append(f"• {title} — R${price}")
-            linhas.append("🔗 Para ver os links completos, diga ‘Links dos produtos’.")
+            linhas.append("🔗 Para ver links completos, diga ‘Links dos produtos’.")
             texto = "\n".join(linhas)
 
         self.whatsapp.send_text_message(sender_id, texto)
@@ -180,13 +184,6 @@ class ZafiraCore:
             linhas.append(f"• {url}")
         self.whatsapp.send_text_message(sender_id, "\n".join(linhas))
 
-    def _handle_piada(self, sender_id: str):
-        self.whatsapp.send_text_message(
-            sender_id,
-            "🤣 Por que o programador confunde Halloween com Natal?\n"
-            "Porque OCT 31 == DEC 25!"
-        )
-
     def _handle_fallback(self, sender_id: str):
         texto = (
             "Desculpe, não entendi. 🤔\n"
@@ -194,7 +191,7 @@ class ZafiraCore:
             "- ‘Quero um fone bluetooth’\n"
             "- ‘Links dos produtos’\n"
             "- ‘O que é API?’\n"
-            "- ‘Me conte uma piada’"
+            "- ‘Conte uma piada’"
         )
         self.whatsapp.send_text_message(sender_id, texto)
 
