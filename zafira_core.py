@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 class ZafiraCore:
     def __init__(self):
-        # Clientes de infra
+        # Clientes
         self.whatsapp   = WhatsAppClient()
         self.aliexpress = AliExpressClient()
         self.groc       = GROCClient()
@@ -37,10 +37,10 @@ class ZafiraCore:
         # Configuração de administradores
         self.admin_ids      = os.getenv("ADMIN_IDS", "").split(",")
         self.admin_pin      = os.getenv("ADMIN_PIN", "").strip()
-        # Pode ser "aguardando_pin" ou datetime de expiração
+        # Valor: "aguardando_pin" ou datetime de expiração
         self.admin_sessions = {}
 
-        # Últimos produtos para /links
+        # Armazena último resultado de busca
         self._last_products = []
         self._last_query    = ""
 
@@ -49,24 +49,24 @@ class ZafiraCore:
     def process_message(self, sender_id: str, message: str):
         now = datetime.utcnow()
 
-        # 1) Guarda tudo no histórico
+        # 1) Guarda histórico
         self.sessions.push(sender_id, message)
         logger.debug(f"Session[{sender_id}]: {self.sessions.get(sender_id)}")
 
-        # 2) Se estiver aguardando PIN, trate primeiro
+        # 2) Se estiver aguardando PIN, trate antes de tudo
         if self.admin_sessions.get(sender_id) == "aguardando_pin":
             return self._handle_admin_pin(sender_id, message)
 
         # 3) Se já autenticado e dentro do prazo, chat livre ADM
         exp = self.admin_sessions.get(sender_id)
         if isinstance(exp, datetime) and now <= exp:
-            # estende mais 30min a cada interação
+            # Estende mais 30min a cada nova mensagem
             self.admin_sessions[sender_id] = now + timedelta(minutes=30)
             history = self.sessions.get(sender_id)
             reply = self.ag_adm_groq.responder(history, message)
             return self.whatsapp.send_text_message(sender_id, reply)
 
-        # 4) Detecta intenção normal
+        # 4) Detecta intenção
         intent = self._detect_intent(message)
         logger.info(f"[INTENT] {sender_id} → '{message}' => {intent}")
 
@@ -147,10 +147,9 @@ class ZafiraCore:
 
     def _handle_admin_pin(self, sid: str, message: str):
         if message.strip() == self.admin_pin:
-            # autentica por 30 minutos
             self.admin_sessions[sid] = datetime.utcnow() + timedelta(minutes=30)
             return self.whatsapp.send_text_message(sid, "✅ PIN correto. Acesso ADM liberado por 30 min.")
-        # se errar, continua aguardando PIN
+        # se incorreto, continua aguardando PIN
         self.admin_sessions[sid] = "aguardando_pin"
         return self.whatsapp.send_text_message(sid, "❌ PIN incorreto. Tente novamente:")
 
@@ -180,7 +179,6 @@ class ZafiraCore:
                 f"❓ Tipo '{tipo}' não reconhecido.\n"
                 "Use 'Relatório interacoes' ou 'Relatório usuarios'."
             )
-        # relatório geral
         total = len(self.sessions.sessions)
         last_q = self._last_query or "nenhuma"
         last_n = len(self._last_products)
@@ -193,12 +191,71 @@ class ZafiraCore:
         return self.whatsapp.send_text_message(sid, texto)
 
     def _handle_produto(self, sid: str, message: str):
-        # seu código de busca, filtro e formatação permanece aqui
-        pass
+        # 1) Extrai termos e faixa de preço
+        clean = re.sub(r"[^\w\s]", "", message.lower())
+        stop  = {"quero","procuro","comprar","fone","celular","busco","até","reais"}
+        termos = " ".join(w for w in clean.split() if w not in stop)
+
+        min_p, max_p = None, None
+        m = re.search(r"(\d+(?:[.,]\d+)?)\s*(?:até|-)\s*(\d+(?:[.,]\d+)?)", message)
+        if m:
+            min_p = float(m.group(1).replace(",","."))
+            max_p = float(m.group(2).replace(",","."))
+        else:
+            m2 = re.search(r"até\s*(\d+(?:[.,]\d+)?)", message)
+            if m2:
+                max_p = float(m2.group(1).replace(",","."))
+
+        # 2) Busca bruta na API do AliExpress
+        resp = self.aliexpress.search_products(termos, limit=10, page_no=1)
+        raw = (
+            resp
+            .get("aliexpress_affiliate_product_query_response", {})
+            .get("resp_result", {})
+            .get("result", {})
+            .get("products", {})
+            .get("product", [])
+        ) or []
+
+        # 3) Filtra pela faixa de preço, se houver
+        def price_val(p):
+            return float(p.get("target_sale_price","0").replace(",","."))
+        if min_p is not None:
+            raw = [p for p in raw if price_val(p) >= min_p]
+        if max_p is not None:
+            raw = [p for p in raw if price_val(p) <= max_p]
+
+        # 4) Ordena e seleciona top 3
+        raw.sort(key=price_val)
+        top3 = raw[:3]
+        self._last_products = top3
+        self._last_query    = termos
+
+        # 5) Formata a resposta
+        if not top3:
+            text = f"⚠️ Não encontrei '{termos}' com esses critérios."
+        else:
+            lines = [f"Encontrei estes resultados para '{termos}':"]
+            for p in top3:
+                title = p.get("product_title","-")
+                price = p.get("target_sale_price","-")
+                lines.append(f"• {title} — R${price}")
+            lines.append("🔗 Para ver os links completos, diga ‘Links dos produtos’.")
+            text = "\n".join(lines)
+
+        return self.whatsapp.send_text_message(sid, text)
 
     def _handle_links(self, sid: str):
-        # seu código de links permanece aqui
-        pass
+        if not self._last_products:
+            return self.whatsapp.send_text_message(
+                sid,
+                "Nenhuma busca recente. Diga ‘Quero um fone bluetooth’ primeiro."
+            )
+        lines = [f"Links para '{self._last_query}':"]
+        for p in self._last_products:
+            url = p.get("promotion_link") or p.get("product_detail_url","-")
+            lines.append(f"• {url}")
+        return self.whatsapp.send_text_message(sid, "\n".join(lines))
 
     def _handle_fallback(self, sid: str):
         texto = (
