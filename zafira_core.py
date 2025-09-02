@@ -15,50 +15,64 @@ class ZafiraCore:
         logger.info("Zafira Core inicializada (modo clássico).")
 
     def process_message(self, sender_id: str, message: str):
-        logger.info(f"Recebido de {sender_id}: {message}")
-        lower = message.lower()
+        logger.info(f"[PROCESS] Mensagem de {sender_id}: '{message}'")
+        intent = self._detect_intent(message)
+        logger.info(f"[PROCESS] Intent detectada: {intent}")
 
-        if any(k in lower for k in ["arroz", "feijão", "feijao", "mercearia"]):
+        if intent == "mercearia":
             self._handle_grocery(sender_id, message)
-
-        elif any(k in lower for k in ["quero", "procuro", "comprar",
-                                      "fone", "celular", "smartwatch",
-                                      "tênis", "tenis"]):
+        elif intent == "produto":
             self._handle_product(sender_id, message)
-
-        elif any(k in lower for k in ["oi", "olá", "ola", "e aí"]):
+        elif intent == "saudacao":
             self._handle_greeting(sender_id)
-
         else:
             self._handle_fallback(sender_id)
 
+    def _detect_intent(self, msg: str) -> str:
+        m = msg.lower()
+        if any(k in m for k in ["arroz", "feijão", "feijao", "mercearia"]):
+            return "mercearia"
+        if any(k in m for k in ["quero", "procuro", "comprar", "busco",
+                                "fone", "celular", "smartwatch", "tênis", "tenis"]):
+            return "produto"
+        if any(k in m for k in ["oi", "olá", "ola", "e aí"]):
+            return "saudacao"
+        return "desconhecido"
+
     def _handle_greeting(self, sender_id: str):
+        logger.info("[GREETING] Enviando saudação")
         text = (
             "Oi! 😊 Sou a Zafira, sua assistente de compras.\n"
-            "Posso ajudar com eletrônicos ou itens de mercearia.\n"
-            "O que você procura hoje?"
+            "Eletrônicos ou mercearia – o que você procura hoje?"
         )
         self.whatsapp.send_text_message(sender_id, text)
 
     def _handle_product(self, sender_id: str, message: str):
         terms = self._clean_terms(message)
+        logger.info(f"[PRODUCT] Termos extraídos: '{terms}'")
         if not terms:
             return self._handle_fallback(sender_id)
 
+        logger.info("[PRODUCT] Chamando AliExpressClient.search_products")
         data  = self.aliexpress.search_products(terms, limit=5)
         reply = self._format_aliexpress(data, terms)
+        logger.info("[PRODUCT] Resposta formatada, enviando mensagem")
         self.whatsapp.send_text_message(sender_id, reply)
 
     def _handle_grocery(self, sender_id: str, message: str):
         terms = self._clean_terms(message)
+        logger.info(f"[GROCERY] Termos extraídos: '{terms}'")
         if not terms:
             return self._handle_fallback(sender_id)
 
+        logger.info("[GROCERY] Chamando GROCClient.search_items")
         data  = self.groc.search_items(terms, limit=5)
         reply = self._format_groc(data, terms)
+        logger.info("[GROCERY] Resposta formatada, enviando mensagem")
         self.whatsapp.send_text_message(sender_id, reply)
 
     def _handle_fallback(self, sender_id: str):
+        logger.info("[FALLBACK] Nenhuma intent reconhecida")
         text = (
             "Desculpe, não entendi. 🤔\n"
             "Tente:\n"
@@ -71,8 +85,8 @@ class ZafiraCore:
     def _clean_terms(self, message: str) -> str:
         clean = re.sub(r"[^\w\s]", "", message.lower())
         stop = {
-            "um", "uma", "o", "a", "de", "do", "da", "para", "com",
-            "reais", "quero", "procuro", "comprar"
+            "um","uma","o","a","de","do","da","para","com",
+            "reais","quero","procuro","comprar","busco"
         }
         return " ".join(w for w in clean.split() if w not in stop)
 
