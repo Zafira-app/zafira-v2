@@ -1,3 +1,5 @@
+# zafira_core.py
+
 import re
 import logging
 
@@ -6,6 +8,7 @@ from clients.aliexpress_client import AliExpressClient
 from clients.groc_client import GROCClient
 
 logger = logging.getLogger(__name__)
+
 
 class ZafiraCore:
     def __init__(self):
@@ -91,38 +94,46 @@ class ZafiraCore:
         return " ".join(w for w in clean.split() if w not in stop)
 
     def _format_aliexpress(self, data: dict, query: str) -> str:
+        """
+        Extrai produtos considerando campos em inglês ou em português.
+        """
         if "error" in data or "error_response" in data:
             return "😔 Erro ao buscar no AliExpress. Tente novamente mais tarde."
 
-        products = (
-            data.get("aliexpress_affiliate_product_query_response", {})
-                .get("resp_result", {})
-                .get("result", {})
-                .get("products", {})
-                .get("product", [])
-        )
+        resp        = data.get("aliexpress_affiliate_product_query_response", {})
+        resp_res    = resp.get("resp_result", {}) or resp.get("resposta", {})
+        # Suporte a 'result' ou 'resultado'
+        result      = resp_res.get("result") or resp_res.get("resultado") or {}
+        # Suporte a 'products' ou 'produtos'
+        products_ct = result.get("products") or result.get("produtos") or {}
+        # Suporte a 'product' ou 'produto'
+        products    = products_ct.get("product") or products_ct.get("produto") or []
+
         if not products:
             return f"⚠️ Não achei '{query}' no AliExpress."
 
         lines = [f"Aqui estão opções para '{query}':"]
         for p in products:
-            title = p.get("product_title", "-")
-            price = p.get("target_sale_price", "-")
-            link  = p.get("promotion_link") or p.get("product_detail_url", "")
+            title = p.get("product_title")          or p.get("titulo_produto")         or "-"
+            price = p.get("target_sale_price")      or p.get("preco_alvo")             or "-"
+            link  = p.get("promotion_link")         or p.get("product_detail_url")     or p.get("url_detalhe_produto") or "-"
             lines.append(f"🛒 {title}\n💰 {price}\n🔗 {link}")
+
         return "\n\n".join(lines)
 
     def _format_groc(self, data: dict, query: str) -> str:
         if "error" in data:
             return "😔 Erro ao buscar na mercearia. Tente novamente mais tarde."
 
-        items = data.get("items", [])
+        # Suporte a chave 'items' ou 'itens'
+        items = data.get("items") or data.get("itens") or []
         if not items:
             return f"⚠️ Não achei '{query}' na mercearia."
 
         lines = [f"Encontrei estes itens na mercearia para '{query}':"]
         for it in items:
-            name  = it.get("name", "-")
-            price = it.get("price", "-")
+            name  = it.get("name")  or it.get("nome")  or "-"
+            price = it.get("price") or it.get("preco") or "-"
             lines.append(f"• {name} — R${price}")
+
         return "\n".join(lines)
