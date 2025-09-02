@@ -184,13 +184,18 @@ class ZafiraCore:
 
         # 5) Monta lista interativa
         rows = []
-        for idx, p in enumerate(top3, start=1):
-            rows.append({
-                "id": f"prod_{idx}",
-                "title": f"{p.get('product_title','Produto')} — R${p.get('target_sale_price','-')}",
-                "description": ""
-            })
-        sections = [{"title": termos, "rows": rows}]
+    for idx, p in enumerate(top3, start=1):
+        source = p.get("source", "AliExpress")
+        # Monta título bruto: "Produto — R$123,45 (Origem)"
+        raw_title = f"{p['product_title']} — R${p['target_sale_price']} ({source})"
+        # Trunca para 24 caracteres, adicionando "..." se necessário
+        title = raw_title if len(raw_title) <= 24 else raw_title[:21] + "..."
+        rows.append({
+            "id": f"prod_{idx}",
+            "title": title,
+            "description": ""
+        })
+    sections = [{"title": termos[:24], "rows": rows}]
 
         return self.whatsapp.send_list_message(
             sid,
