@@ -1,22 +1,8 @@
-# Web framework
 Flask==2.3.3
 gunicorn==21.2.0
-
-# HTTP e variáveis de ambiente
 requests==2.31.0
 python-dotenv==1.0.0
 
-# Processamento de dados
 pandas==1.5.1
 statsapi==1.7.2
 numpy==1.23.4
-
-# CrewAI & ferramentas
-crewai==0.41.1
-crewai-tools==0.4.8
-
-# Groq LLM integration
-langchain-groq==0.1.6
-
-# Validação de dados
-pydantic==2.5.0
