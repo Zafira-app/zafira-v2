@@ -2,8 +2,8 @@ import re
 import logging
 
 from clients.whatsapp_client import WhatsAppClient
-from clients.aliexpress_client  import AliExpressClient
-from clients.groc_client       import GROCClient
+from clients.aliexpress_client import AliExpressClient
+from clients.groc_client import GROCClient
 
 logger = logging.getLogger(__name__)
 
@@ -54,10 +54,7 @@ class ZafiraCore:
             return self._handle_fallback(sender_id)
 
         logger.info("[PRODUCT] Chamando AliExpressClient.search_products")
-        # força sempre page_no=1
         data = self.aliexpress.search_products(terms, limit=5, page_no=1)
-
-        logger.info("[PRODUCT] Dados recebidos do AliExpress: %s", data)
         reply = self._format_aliexpress(data, terms)
         logger.info("[PRODUCT] Resposta formatada, enviando mensagem")
         self.whatsapp.send_text_message(sender_id, reply)
@@ -70,7 +67,6 @@ class ZafiraCore:
 
         logger.info("[GROCERY] Chamando GROCClient.search_items")
         data = self.groc.search_items(terms, limit=5)
-        logger.info("[GROCERY] Dados recebidos do GROC: %s", data)
         reply = self._format_groc(data, terms)
         logger.info("[GROCERY] Resposta formatada, enviando mensagem")
         self.whatsapp.send_text_message(sender_id, reply)
@@ -109,9 +105,9 @@ class ZafiraCore:
 
         lines = [f"Aqui estão opções para '{query}':"]
         for p in products:
-            title = p.get("product_title")      or p.get("titulo_produto")         or "-"
-            price = p.get("target_sale_price")  or p.get("preco_alvo")             or "-"
-            link  = p.get("promotion_link")     or p.get("product_detail_url")     or p.get("url_detalhe_produto") or "-"
+            title = p.get("product_title") or p.get("titulo_produto") or "-"
+            price = p.get("target_sale_price") or p.get("preco_alvo") or "-"
+            link  = p.get("promotion_link") or p.get("product_detail_url") or p.get("url_detalhe_produto") or "-"
             lines.append(f"🛒 {title}\n💰 {price}\n🔗 {link}")
 
         return "\n\n".join(lines)
