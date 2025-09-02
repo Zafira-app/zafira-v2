@@ -197,14 +197,14 @@ class ZafiraCore:
         })
     sections = [{"title": termos[:24], "rows": rows}]
 
-        return self.whatsapp.send_list_message(
-            sid,
-            header=f"Resultados para '{termos}'",
-            body="Toque no produto para ver detalhes.",
-            footer="Zafira – sua assistente de compras",
-            button="Ver opções",
-            sections=sections
-        )
+       return self.whatsapp.send_list_message(
+        sid,
+        header=f"Resultados p/ '{termos[:24]}'",
+        body="Toque no item p/ ver foto e link",
+        footer="Zafira – assistente de compras",
+        button="Ver opções",
+        sections=sections
+    )
 
     def _handle_product_selection(self, sid: str, choice_id: str):
         idx = int(choice_id.split("_")[1]) - 1
