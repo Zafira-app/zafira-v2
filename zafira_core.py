@@ -9,10 +9,9 @@ logger = logging.getLogger(__name__)
 
 class ZafiraCore:
     def __init__(self):
-        self.whatsapp   = WhatsAppClient()
-        self.aliexpress = AliExpressClient()
-        self.groc       = GROCClient()
-        # Guarda resultados da última busca de produto
+        self.whatsapp       = WhatsAppClient()
+        self.aliexpress     = AliExpressClient()
+        self.groc           = GROCClient()
         self._last_products = []
         self._last_query    = ""
         logger.info("Zafira Core inicializada (modo clássico).")
@@ -50,21 +49,35 @@ class ZafiraCore:
             return "mercearia"
         return "desconhecido"
 
-    def _handle_greeting(self, sender_id: str):
-        text = (
-            "Oi! 😊 Sou a Zafira, sua assistente de compras.\n"
-            "Eletrônicos ou mercearia – o que você procura hoje?"
-        )
-        self.whatsapp.send_text_message(sender_id, text)
+    def _extract_price_limits(self, msg: str) -> tuple[float|None, float|None]:
+        """
+        Regex para extrair 'min a max reais' ou 'até max reais'.
+        Retorna (min_price, max_price).
+        """
+        m = re.search(r"(\d+(?:[.,]\d+)?)\s*(?:a|até|-)\s*(\d+(?:[.,]\d+)?)\s*(?:reais|rs)?", msg)
+        if m:
+            low = float(m.group(1).replace(",","."))
+            hi  = float(m.group(2).replace(",","."))
+            return low, hi
+
+        m2 = re.search(r"até\s*(\d+(?:[.,]\d+)?)\s*(?:reais|rs)?", msg)
+        if m2:
+            hi = float(m2.group(1).replace(",","."))
+            return None, hi
+
+        return None, None
 
     def _handle_product(self, sender_id: str, message: str):
         terms = self._clean_terms(message)
         if not terms:
             return self._handle_fallback(sender_id)
 
-        data = self.aliexpress.search_products(terms, limit=5, page_no=1)
+        # extrai orçamento
+        min_price, max_price = self._extract_price_limits(message)
+        logger.info(f"[PRODUCT] Termos: '{terms}', min_price={min_price}, max_price={max_price}")
 
-        # Extrai e armazena para links
+        # busca sempre page_no=1
+        data = self.aliexpress.search_products(terms, limit=10, page_no=1)
         products = (
             data.get("aliexpress_affiliate_product_query_response", {})
                 .get("resp_result", {})
@@ -72,19 +85,30 @@ class ZafiraCore:
                 .get("products", {})
                 .get("product", [])
         ) or []
+
+        # filtra por preço, se extraído
+        def price_val(p):
+            v = p.get("target_sale_price", p.get("preco_alvo","0"))
+            return float(v.replace(",",".").replace("R$","").strip() or 0)
+        if min_price is not None:
+            products = [p for p in products if price_val(p) >= min_price]
+        if max_price is not None:
+            products = [p for p in products if price_val(p) <= max_price]
+
+        # guarda os 3 primeiros para 'links'
         self._last_products = products[:3]
         self._last_query    = terms
 
-        # Responde só título/preço
+        # formata mensagem curta
         if not self._last_products:
-            text = f"⚠️ Não achei '{terms}' no AliExpress."
+            text = f"⚠️ Não achei '{terms}' dentro do orçamento."
         else:
-            lines = [f"Encontrei esses resultados para '{terms}':"]
+            lines = [f"Encontrei estes resultados para '{terms}':"]
             for p in self._last_products:
-                title = p.get("product_title", "-")
-                price = p.get("target_sale_price", "-")
+                title = p.get("product_title","-")
+                price = p.get("target_sale_price","-")
                 lines.append(f"• {title} — R${price}")
-            lines.append("🔗 Quer ver os links completos? Peça 'Links dos produtos'.")
+            lines.append("🔗 Para ver os links completos, peça 'Links dos produtos'.")
             text = "\n".join(lines)
 
         self.whatsapp.send_text_message(sender_id, text)
@@ -93,10 +117,10 @@ class ZafiraCore:
         if not self._last_products:
             return self.whatsapp.send_text_message(
                 sender_id,
-                "Não tenho links armazenados. Faça antes uma busca, ex.: 'Quero um fone bluetooth'."
+                "Ainda não fiz nenhuma busca de produtos. Tente 'Quero um fone bluetooth' primeiro."
             )
 
-        lines = [f"Aqui estão os links para '{self._last_query}':"]
+        lines = [f"Links para '{self._last_query}':"]
         for p in self._last_products:
             url = p.get("promotion_link") or p.get("product_detail_url") or "-"
             lines.append(f"• {url}")
@@ -113,13 +137,21 @@ class ZafiraCore:
         if not items:
             text = f"⚠️ Não achei '{terms}' na mercearia."
         else:
-            lines = [f"Encontrei estes itens de mercearia para '{terms}':"]
+            lines = [f"Itens de mercearia para '{terms}':"]
             for it in items[:5]:
-                name  = it.get("name") or it.get("nome") or "-"
-                price = it.get("price") or it.get("preco") or "-"
+                name  = it.get("name") or it.get("nome","-")
+                price = it.get("price") or it.get("preco","-")
                 lines.append(f"• {name} — R${price}")
             text = "\n".join(lines)
 
+        self.whatsapp.send_text_message(sender_id, text)
+
+    def _handle_greeting(self, sender_id: str):
+        text = (
+            "Oi! 😊 Sou a Zafira, sua assistente de compras.\n"
+            "Eletrônicos ou mercearia – o que você procura hoje?\n"
+            "Você pode definir um orçamento: 'celular até 3000 reais'."
+        )
         self.whatsapp.send_text_message(sender_id, text)
 
     def _handle_fallback(self, sender_id: str):
@@ -127,9 +159,9 @@ class ZafiraCore:
             "Desculpe, não entendi. 🤔\n"
             "Tente:\n"
             "- 'Quero um fone bluetooth'\n"
-            "- 'Procuro um smartwatch'\n"
+            "- 'Quero um celular até 3000 reais'\n"
             "- 'Preciso de arroz e feijão'\n"
-            "- 'Links dos produtos' para ver URLs após buscar"
+            "- 'Links dos produtos'"
         )
         self.whatsapp.send_text_message(sender_id, text)
 
@@ -137,6 +169,6 @@ class ZafiraCore:
         clean = re.sub(r"[^\w\s]", "", message.lower())
         stop = {
             "um","uma","o","a","de","do","da","para","com",
-            "reais","quero","procuro","comprar","busco"
+            "reais","quero","procuro","comprar","busco","até"
         }
         return " ".join(w for w in clean.split() if w not in stop)
