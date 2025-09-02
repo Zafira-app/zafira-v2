@@ -30,30 +30,27 @@ class ZafiraCore:
         self.ag_adm_groq = AgenteConversaADMGroq()
 
         # Sessões e estado ADM
-        self.sessions      = SessionManager(max_len=50)
-        self.admin_ids     = os.getenv("ADMIN_IDS", "").split(",")
-        self.admin_pin     = os.getenv("ADMIN_PIN", "").strip()
-        self.admin_sessions = {}  # "aguardando_pin" ou datetime de expiração
+        self.sessions       = SessionManager(max_len=50)
+        self.admin_ids      = os.getenv("ADMIN_IDS", "").split(",")
+        self.admin_pin      = os.getenv("ADMIN_PIN", "").strip()
+        self.admin_sessions = {}  # "aguardando_pin" ou datetime de expiracao
 
-        # Últimos resultados de produto
+        # Busca de produtos
         self._last_products = []
         self._last_query    = ""
 
-        logger.info("ZafiraCore iniciada com listas interativas e ADM temporário.")
+        logger.info("ZafiraCore iniciada com suporte a listas interativas e ADM temporário.")
 
     def process_message(self, sender_id: str, message: str, interactive: dict = None):
-        """
-        - message: corpo da mensagem de texto simples OU ID de lista (ex: 'prod_2')
-        - interactive: dict com payload interactive se aplicável
-        """
         now = datetime.utcnow()
         self.sessions.push(sender_id, message)
 
-        # 1) Se for lista interativa (seu app.py deve repassar o bloco interactive)
+        # 1) Tratamento de seleção da lista interativa
         if interactive and interactive.get("type") == "list_reply":
-            return self._handle_product_selection(sender_id, interactive["id"])
+            choice_id = interactive["list_reply"]["id"]
+            return self._handle_product_selection(sender_id, choice_id)
 
-        # 2) PIN pendente?
+        # 2) Se aguardando PIN, trate antes de intenções
         if self.admin_sessions.get(sender_id) == "aguardando_pin":
             return self._handle_admin_pin(sender_id, message)
 
@@ -65,7 +62,7 @@ class ZafiraCore:
             resp = self.ag_adm_groq.responder(hist, message)
             return self.whatsapp.send_text_message(sender_id, resp)
 
-        # 4) Intent detection
+        # 4) Detecção de intenção
         intent = self._detect_intent(message)
         logger.info(f"[INTENT] {sender_id} → '{message}' => {intent}")
 
@@ -122,12 +119,12 @@ class ZafiraCore:
         if sid not in self.admin_ids:
             return self.whatsapp.send_text_message(sid, "❌ Sem permissão ao modo ADM.")
         self.admin_sessions[sid] = "aguardando_pin"
-        return self.whatsapp.send_text_message(sid, "🔐 Modo ADM ativado. Informe seu PIN:")
+        return self.whatsapp.send_text_message(sid, "🔐 Modo ADM ativado. Envie seu PIN:")
 
     def _handle_admin_pin(self, sid: str, msg: str):
         if msg.strip() == self.admin_pin:
             self.admin_sessions[sid] = datetime.utcnow() + timedelta(minutes=30)
-            return self.whatsapp.send_text_message(sid, "✅ PIN correto. Acesso ADM por 30 min.")
+            return self.whatsapp.send_text_message(sid, "✅ PIN correto! Acesso ADM por 30 min.")
         self.admin_sessions[sid] = "aguardando_pin"
         return self.whatsapp.send_text_message(sid, "❌ PIN incorreto. Tente novamente:")
 
@@ -135,25 +132,20 @@ class ZafiraCore:
         exp = self.admin_sessions.get(sid)
         if not (isinstance(exp, datetime) and datetime.utcnow() <= exp):
             return self.whatsapp.send_text_message(sid, "❌ Autentique-se no modo ADM.")
-        # relatório genérico ou específico (como implementado antes)...
         total = len(self.sessions.sessions)
-        return self.whatsapp.send_text_message(
-            sid, f"👥 Usuários hoje: {total}\nUse 'Relatório interacoes'."
-        )
+        return self.whatsapp.send_text_message(sid, f"👥 Usuários hoje: {total}\nUse 'Relatório interacoes'.")
 
     def _fix_image_url(self, url: str) -> str:
-        """Converte .webp para .jpeg via proxy images.weserv.nl."""
         if url.lower().endswith(".webp"):
             path = quote_plus(url.replace("https://", "").replace("http://", ""))
             return f"https://images.weserv.nl/?url={path}&output=jpeg"
         return url
 
     def _handle_produto(self, sid: str, message: str):
-        # extrair termos e faixa de preço (igual antes)...
+        # Extrai termos e faixa de preço
         clean = re.sub(r"[^\w\s]", "", message.lower())
         stop  = {"quero","procuro","comprar","busco","até","reais"}
         termos = " ".join(w for w in clean.split() if w not in stop)
-
         min_p = max_p = None
         m = re.search(r"(\d+(?:[.,]\d+)?)\s*(?:até|-)\s*(\d+(?:[.,]\d+)?)", message)
         if m:
@@ -163,6 +155,7 @@ class ZafiraCore:
             if m2:
                 max_p = float(m2.group(1).replace(",", "."))
 
+        # Busca bruta
         resp = self.aliexpress.search_products(termos, limit=10, page_no=1)
         raw = (resp.get("aliexpress_affiliate_product_query_response", {})
                    .get("resp_result", {})
@@ -170,8 +163,74 @@ class ZafiraCore:
                    .get("products", {})
                    .get("product", [])) or []
 
+        # Filtra preço
         def price_val(p): return float(p.get("target_sale_price","0").replace(",","."))
         if min_p is not None:
             raw = [p for p in raw if price_val(p) >= min_p]
         if max_p is not None:
-            raw = [p for p in raw if price_val(p
+            raw = [p for p in raw if price_val(p) <= max_p]
+
+        raw.sort(key=price_val)
+        top3 = raw[:3]
+        self._last_products = top3
+        self._last_query    = termos
+
+        if not top3:
+            return self.whatsapp.send_text_message(sid, f"⚠️ Não encontrei '{termos}'.")
+
+        # Monta opções da lista
+        rows = []
+        for idx, p in enumerate(top3, start=1):
+            rows.append({
+                "id": f"prod_{idx}",
+                "title": f"{p.get('product_title','Produto')} — R${p.get('target_sale_price','-')}",
+                "description": ""
+            })
+        sections = [{"title": termos, "rows": rows}]
+
+        return self.whatsapp.send_list_message(
+            sid,
+            header=f"Resultados para '{termos}'",
+            body="Toque no produto para ver detalhes e link.",
+            footer="Zafira – sua assistente de compras",
+            button="Ver opções",
+            sections=sections
+        )
+
+    def _handle_product_selection(self, sid: str, choice_id: str):
+        # choice_id ex: "prod_2"
+        idx = int(choice_id.split("_")[1]) - 1
+        if idx < 0 or idx >= len(self._last_products):
+            return self.whatsapp.send_text_message(sid, "Opção inválida.")
+        p = self._last_products[idx]
+        title = p.get("product_title","Produto")
+        price = p.get("target_sale_price","-")
+        link  = p.get("promotion_link") or p.get("product_detail_url","")
+        img_url = (
+            p.get("product_main_image_url")
+            or p.get("image_url")
+            or p.get("product_image_thumbnail_url")
+            or ""
+        )
+        img_url = self._fix_image_url(img_url)
+        caption = f"{title}\nR${price}\n{link}"
+        self.whatsapp.send_media_message(sid, img_url, caption)
+        return None
+
+    def _handle_links(self, sid: str):
+        if not self._last_products:
+            return self.whatsapp.send_text_message(sid, "Nenhuma busca recente.")
+        lines = [f"Links para '{self._last_query}':"]
+        for p in self._last_products:
+            lines.append(p.get("promotion_link") or p.get("product_detail_url","-"))
+        return self.whatsapp.send_text_message(sid, "\n".join(lines))
+
+    def _handle_fallback(self, sid: str):
+        return self.whatsapp.send_text_message(
+            sid,
+            "Desculpe, não entendi. 🤔\n"
+            "Tente:\n"
+            "- ‘Quero um fone bluetooth’\n"
+            "- ‘Links dos produtos’\n"
+            "- ‘Me conte uma piada’"
+        )
