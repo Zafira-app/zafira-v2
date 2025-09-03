@@ -32,26 +32,26 @@ class ZafiraCore:
         self.ag_humor    = AgenteHumor()
         self.ag_adm_groq = AgenteConversaADMGroq()
 
-        self.sessions        = SessionManager(max_len=50)
-        self.admin_ids       = os.getenv("ADMIN_IDS", "").split(",")
-        self.admin_pin       = os.getenv("ADMIN_PIN", "").strip()
-        self.admin_sessions  = {}
+        self.sessions       = SessionManager(max_len=50)
+        self.admin_ids      = os.getenv("ADMIN_IDS", "").split(",")
+        self.admin_pin      = os.getenv("ADMIN_PIN", "").strip()
+        self.admin_sessions = {}
 
-        self._last_products  = []
-        self._last_query     = ""
+        self._last_products = []
+        self._last_query    = ""
 
-        logger.info("ZafiraCore iniciada com listas interativas e ADM temporário.")
+        logger.info("ZafiraCore iniciada com suportes a AliExpress + MercadoLivre.")
 
     def process_message(self, sender_id: str, message: str, interactive: dict = None):
         now = datetime.utcnow()
         self.sessions.push(sender_id, message)
 
-        # 1) Seleção de lista interativa
+        # 1) Se veio seleção interativa
         if interactive and interactive.get("type") == "list_reply":
             choice_id = interactive["list_reply"]["id"]
             return self._handle_product_selection(sender_id, choice_id)
 
-        # 2) PIN pendente?
+        # 2) PIN pendente
         if self.admin_sessions.get(sender_id) == "aguardando_pin":
             return self._handle_admin_pin(sender_id, message)
 
@@ -63,11 +63,11 @@ class ZafiraCore:
             reply   = self.ag_adm_groq.responder(history, message)
             return self.whatsapp.send_text_message(sender_id, reply)
 
-        # 4) Intenção
+        # 4) Detecta intenção
         intent = self._detect_intent(message)
         logger.info(f"[INTENT] {sender_id} → '{message}' => {intent}")
 
-        # 5) Roteamento
+        # 5) Roteamento de intents
         if intent == "saudacao":
             return self._handle_saudacao(sender_id)
         if intent == "modo_admin":
@@ -94,19 +94,19 @@ class ZafiraCore:
 
     def _detect_intent(self, msg: str) -> str:
         m = msg.lower()
-        if any(g in m for g in ["oi","olá","ola","oiee","e aí","tudo bem"]):
+        if any(g in m for g in ["oi", "olá", "ola", "oiee", "e aí", "tudo bem"]):
             return "saudacao"
         if "modo adm" in m:
             return "modo_admin"
-        if any(r in m for r in ["relatorio","pesquisa","planilha"]):
+        if any(r in m for r in ["relatorio", "pesquisa", "planilha"]):
             return "relatorio"
-        if any(i in m for i in ["o que é","quem","onde","por que"]):
+        if any(i in m for i in ["o que é", "quem", "onde", "por que"]):
             return "informacao_geral"
-        if any(b in m for b in ["quero","procuro","comprar","busco"]):
+        if any(b in m for b in ["quero", "procuro", "comprar", "busco"]):
             return "produto"
-        if any(k in m for k in ["link","links","url"]):
+        if any(k in m for k in ["link", "links", "url"]):
             return "links"
-        if any(p in m for p in ["piada","trocadilho"]):
+        if any(p in m for p in ["piada", "trocadilho"]):
             return "piada"
         return "conversa_geral"
 
@@ -148,9 +148,8 @@ class ZafiraCore:
         return url
 
     def _handle_produto(self, sid: str, message: str):
-        # Extrai termos e preços
         clean = re.sub(r"[^\w\s]", "", message.lower())
-        stop  = {"quero","procuro","comprar","busco","até","reais"}
+        stop  = {"quero", "procuro", "comprar", "busco", "até", "reais"}
         termos = " ".join(w for w in clean.split() if w not in stop)
 
         min_p = max_p = None
@@ -163,12 +162,10 @@ class ZafiraCore:
             if m2:
                 max_p = float(m2.group(1).replace(",", "."))
 
-        # Busca em AliExpress e MercadoLivre
         ali = self.aliexpress.search_products(termos, limit=10, page_no=1)
         ml  = self.mercado.search_products(termos, limit=10)
         combined = ali + ml
 
-        # Filtra por preço
         def price_val(p):
             return float(p.get("target_sale_price", "0").replace(",", "."))
         if min_p is not None:
@@ -176,7 +173,6 @@ class ZafiraCore:
         if max_p is not None:
             combined = [p for p in combined if price_val(p) <= max_p]
 
-        # Ordena e top-3
         combined.sort(key=price_val)
         top3 = combined[:3]
         self._last_products = top3
@@ -185,7 +181,6 @@ class ZafiraCore:
         if not top3:
             return self.whatsapp.send_text_message(sid, f"⚠️ Não encontrei '{termos}'.")
 
-        # Monta a lista interativa (cada título truncado em 24 chars)
         rows = []
         for idx, p in enumerate(top3, start=1):
             source    = p.get("source", "AliExpress")
@@ -212,6 +207,7 @@ class ZafiraCore:
         if idx < 0 or idx >= len(self._last_products):
             return self.whatsapp.send_text_message(sid, "Opção inválida.")
         p = self._last_products[idx]
+
         title = p.get("product_title", "Produto")
         price = p.get("target_sale_price", "-")
         link  = p.get("promotion_link") or p.get("product_detail_url", "")
